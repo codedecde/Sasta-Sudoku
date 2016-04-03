@@ -6,19 +6,24 @@
 #define BOARD_SIZE (SIZE*SIZE + 1)
 
 struct cell_t; // r, c, allowed, n_allowed
+  struct cell_node_t;
 struct pool_t; // Thread's access this... array of board's, FIFO/LIFO/PQ behaviour to be defined.
   struct pool_node_t; // private struct for pool_t really.
 struct heap_t;
 
 typedef struct cell_t cell_t;
+typedef struct cell_node_t cell_node_t;
 typedef struct pool_t pool_t;
 typedef struct pool_node_t pool_node_t;
 typedef struct heap_t heap_t;
 // Functions of : cell_t
   #define NOT_ALLOWED 37
-  int is_allowed(cell_t*, int);
-  void set_allowed(cell_t*, int);
-  void unset_allowed(cell_t*, int);
+  void cell_init(cell_t* cell);
+  int is_allowed(cell_t* cell, int val);
+  void add_allowed(cell_t* cell,int val);
+  void remove_allowed(cell_t* cell,int val);
+  int set_value(cell_t* cell,int val);
+  int cell_destructor(cell_t* cell);
 
 // Functions of : pool_t
   int is_empty(pool_t* this);
@@ -35,47 +40,92 @@ typedef struct heap_t heap_t;
   cell_t* heap_top(heap_t* heap);
   void heap_destructor(heap_t*);
 // Definitions Now.
-struct cell_t {
+struct cell_node_t{
+  int val;
+  cell_node_t* prev;
+  cell_node_t* next;
+};
+struct cell_t{
   int row; //Row
   int col; //Col
-  int allowed; //Bitmask of values allowed
+  cell_node_t* head; //Head of list 
+  cell_node_t** base_array; // The array mapping indices to list indices
   int n_allowed; //Number of values allowed
   int value; // value of cell, if filled
-};  // cell_t ke functions.
-  int is_allowed(cell_t* this, int val){
-    //0 if not allowed
-    return this->allowed & 1<<val;
+};
+
+  void cell_init(cell_t* cell){
+    cell->head = NULL;
+    cell->base_array = malloc(SIZE * sizeof(cell_node_t*));
+    memset(cell->base_array,0,SIZE * sizeof(cell_node_t*));
+    cell->n_allowed = 0;
+    cell->value = 0;
   }
 
-  void set_allowed(cell_t* this, int val){
-    /*
-    Check if already set. 
-    If not update allowed and n_allowed
-    */
-    if( (this->allowed & 1<<val) ){
-        return;
+  int is_allowed(cell_t* cell, int val){
+    return (cell->base_array[val] ? 1:0);
+  }
+
+  void add_allowed(cell_t* cell,int val){
+    if(cell->base_array[val]){
+      return;
     }
     else{
-        this->allowed |= 1<<val;
-        this->n_allowed ++;
+      cell->base_array[val] = malloc(sizeof(cell_node_t));
+      memset(cell->base_array[val],0,sizeof(cell_node_t));
+      cell->base_array[val]->val = val;
+      cell->base_array[val]->prev = NULL;
+      cell->base_array[val]->next = cell->head;
+      if(cell->head)
+        cell->head->prev = cell->base_array[val];
+      cell->head = cell->base_array[val];
+      cell->n_allowed++;
     }
   }
 
-  void unset_allowed(cell_t* this, int val){
-    /*
-    Check if already set.
-    If set, then unset and update n_allowed . 
-    Handle special case of n_allowed = 0
-    Else return silently 
-    */
-    if ((this->allowed & 1<<val)){
-        this->allowed &= ~(1<<val);
-        this->n_allowed--;
-        if(!(this->n_allowed)){
-            (this->n_allowed) = NOT_ALLOWED;
-        }
+  void remove_allowed(cell_t* cell,int val){
+    if(cell->base_array[val]){
+      cell_node_t* temp = cell->base_array[val];
+      cell->base_array[val] = NULL;
+      if((cell->head)&&(cell->head == temp)){
+        cell->head = temp->next;
+      }
+      if(temp->prev){
+        temp->prev->next = temp->next;
+      }
+      if(temp->next){
+        temp->next->prev = temp->prev;
+      }
+      temp->prev = NULL;
+      temp->next = NULL;
+      free(temp);
+      cell->n_allowed--;
     }
   }
+
+  int set_value(cell_t* cell,int val){
+    if(cell->value != 0){
+      return -1;
+    }
+    cell->value = val;
+    cell->n_allowed = 0;
+    cell->head = NULL;
+    int i;
+    for(;i<SIZE;i++){
+      free(cell->base_array[i]);
+    }
+  }
+  int cell_destructor(cell_t* cell){
+    if(!cell->value){
+      cell->head = NULL;
+      int i;
+      for(;i<SIZE;i++){
+        free(cell->base_array[i]);
+      }
+    }
+    free(cell->base_array);
+  }
+
   // END OF WHAT WOULD HAVE BEEN A BEAUTIFUL cell_t definition
 
 struct pool_node_t {
@@ -237,3 +287,5 @@ struct heap_t{
     free(heap->base_array);
   }
 // END OF WHAT WOULD'VE BEEN A GORGEOUS heap_t
+
+// ALL OF OUR DATA STRUCTURES :D
