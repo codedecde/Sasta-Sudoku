@@ -64,7 +64,7 @@ struct cell_t {
 		int idx_list = this->base_array[val];
 		if (idx_list) { // it is present in the array.
 			// Case 1: It is the tail of the list.
-			if (this->n_allowed = idx_list) { // 1-indexed means that their equality is what we care about.
+			if (this->n_allowed == idx_list) { // 1-indexed means that their equality is what we care about.
 				this->n_allowed--;
 				this->base_array[val] = 0; // The value is not allowed.
 			} else {
@@ -86,9 +86,9 @@ struct cell_t {
 		if(this->value == 0) {
 			this->value = val;
 			this->n_allowed = 0;
-			int idx_list = 1;
-			for(; this->list[idx_list]; ++idx_list) {
-				this->base_array[ this->list[idx_list] ] = 0; // Say that the value is not allowed.
+			int idx_base_array = 1;
+			for(; idx_base_array <= SIZE; ++idx_base_array) {
+				this->base_array[ idx_base_array ] = 0; // Say that the value is not allowed.
 					// This is the equivalent of free-ing the base_array in old cell_t
 			}
 			return 1; // On success?
@@ -204,3 +204,107 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 		return retval;
 	}
 	// END OF WHAT WOULD'VE BEEN AN AMAZING (dead)pool.
+/*
+	Convert a cell_t* board to an int** board
+	return: int** 
+*/
+	int** cell2board(cell_t* board){
+		int** new_board = malloc(SIZE * sizeof(int*));
+		int i;
+		for(i = 0;i < SIZE;i++){
+			new_board[i] = malloc(SIZE*sizeof(int));
+			int j;
+			for(j = 0;j < SIZE;j++){
+				int idx = SIZE*i + j + 1;
+				new_board[i][j] = board[idx].value;
+			}
+		}
+		return new_board;
+	}
+/*
+  Function call made from main reaches here
+*/
+int** solveSudoku(int** originalGrid){
+  cell_t board[SIZE*SIZE + 1];
+  int r,c;
+  for(r = 0;r < SIZE;r++){
+	for(c = 0; c < SIZE; c++){
+	  int idx = r*SIZE + c + 1;
+	  cell_init(&board[idx]);
+	  if(originalGrid[r][c] != 0){
+	  	set_value( &board[idx], originalGrid[r][c] );
+	  }
+	  else{
+		int bitmask = (1<<(SIZE+1) ) - 2;
+		int jdx = 0;
+		int r_prime = r - (r % MINIGRIDSIZE);
+		int c_prime = c - (c % MINIGRIDSIZE);
+		for(;jdx<SIZE;jdx++){
+			bitmask &= ~(1<<originalGrid[r][jdx]);
+			bitmask &= ~(1<<originalGrid[jdx][c]);
+			bitmask &= ~(1<<originalGrid[r_prime + (jdx/MINIGRIDSIZE)][c_prime + (jdx % MINIGRIDSIZE)]);
+		}
+		jdx = 1;
+		for(;jdx<=SIZE;jdx++){
+			if(bitmask & 1<<jdx){
+				add_allowed(&board[idx],jdx);
+			}
+		}
+	  }
+	}
+  }
+  int error = heuristic_solve(board);
+  return cell2board(board);
+
+}
+
+/*
+  Heuristic solve: Applies elimination (TODO: OTHER STUFF)
+  returns 0 for unsolvable, 
+  return 1 for partially_solved,
+  return 2 for completely_solved
+*/
+int heuristic_solve(cell_t* board){
+	int flag = 1;
+  	int err_code = -1;
+  	while(flag){
+	  	flag = 0;
+	  	err_code = SOLVED;
+	  	int r,c;
+	  	for(r=0;r<SIZE;r++){
+		  	for(c=0;c<SIZE;c++){ // c++ ! Hah! Get it? :D
+			  	int idx = r*SIZE + c + 1;
+			  	if(board[idx].n_allowed == 0){
+				  	if(board[idx].value == 0){ // value is still unfilled.
+					  	err_code = NO_SOLN;
+					  	return err_code;
+				  	}
+				  	// else{ // Don't need this block. Don't keep it.
+				  	// 	continue;
+				  	// }
+			  	}
+			  	else if(board[idx].n_allowed == 1){
+				  	flag = 1;
+				  	int val = board[idx].list[1]; // 1 indexed array
+				  	set_value(&board[idx],val);
+				  	int r_prime = r - (r % MINIGRIDSIZE);
+				  	int c_prime = c - (c % MINIGRIDSIZE);
+				  	int jdx = 0;
+				  	for(;jdx<SIZE;++jdx){
+					  	int jdx_r = r*SIZE + jdx + 1;
+					  	int jdx_c = jdx*SIZE + c + 1;
+					  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+					  	remove_allowed(&board[jdx_r],val);
+					  	remove_allowed(&board[jdx_c],val); 
+					  	remove_allowed(&board[jdx_b],val);
+				  	}
+			  	}
+			  	else if( board[idx].n_allowed > 1){ // Made it a check for sanity purposes.
+				  	err_code = PARTIAL_SOLN;
+			  	}
+		  	}
+	  	}
+  	}
+	return err_code;
+}
+
