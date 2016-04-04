@@ -7,6 +7,7 @@
 #define NO_SOLN 2
 #define PARTIAL_SOLN 1
 #define SOLVED 0
+#define MAX_INT 2*SIZE
 
 struct cell_t; // r, c, allowed, n_allowed
 typedef struct cell_t cell_t;
@@ -92,6 +93,9 @@ struct cell_t {
 					// This is the equivalent of free-ing the base_array in old cell_t
 			}
 			return 1; // On success?
+		}
+		else{
+			this->value = val;
 		}
 		return -1;
 	}
@@ -253,7 +257,8 @@ int** solveSudoku(int** originalGrid){
 	  }
 	}
   }
-  int error = heuristic_solve(board);
+
+  int error = dfs(board);
   return cell2board(board);
 
 }
@@ -279,9 +284,6 @@ int heuristic_solve(cell_t* board){
 					  	err_code = NO_SOLN;
 					  	return err_code;
 				  	}
-				  	// else{ // Don't need this block. Don't keep it.
-				  	// 	continue;
-				  	// }
 			  	}
 			  	else if(board[idx].n_allowed == 1){
 				  	flag = 1;
@@ -306,5 +308,71 @@ int heuristic_solve(cell_t* board){
 	  	}
   	}
 	return err_code;
+}
+
+int dfs(cell_t* board){
+	/*
+	Currently iterate through the entire board
+	Can we do better ?? 
+	*/
+	int min_val = MAX_INT;
+	int min_idx = -1;
+	int i = 1;
+	for(;i<BOARD_SIZE;i++){
+		if(board[i].n_allowed != 0){
+			if(min_val > board[i].n_allowed){
+				min_val = board[i].n_allowed;
+				min_idx = i;
+			}
+		}
+		else if(board[i].n_allowed == 0){
+			if(board[i].value == 0){
+				return NO_SOLN;
+			}
+		}
+	}
+	if(min_idx == -1)
+		return SOLVED;
+	int num_allowed = board[min_idx].n_allowed;
+	int r = (min_idx - 1) / SIZE;
+	int c = (min_idx - 1) % SIZE;
+	int r_prime = r - (r % MINIGRIDSIZE);
+	int c_prime = c - (c % MINIGRIDSIZE);
+	int base_array[SIZE+1];
+	base_array[0] = 0;
+	for(i = 1; i <= num_allowed;i++){
+		base_array[i] = board[min_idx].base_array[i];
+	}
+	for(i = 1; i <= num_allowed;i++){
+		int val = board[min_idx].list[i];
+		set_value(&board[min_idx],val);
+		int jdx = 0;
+		for(;jdx < SIZE;jdx++){
+			int jdx_r = r*SIZE + jdx + 1;
+		  	int jdx_c = jdx*SIZE + c + 1;
+		  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+		  	remove_allowed(&board[jdx_r],val);
+		  	remove_allowed(&board[jdx_c],val); 
+		  	remove_allowed(&board[jdx_b],val);
+		}
+		int error_code = dfs(board);
+		if(error_code == SOLVED){
+			return SOLVED;
+		}
+		for(;jdx < SIZE;jdx++){
+			int jdx_r = r*SIZE + jdx + 1;
+		  	int jdx_c = jdx*SIZE + c + 1;
+		  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+		  	add_allowed(&board[jdx_r],val);
+		  	add_allowed(&board[jdx_c],val); 
+		  	add_allowed(&board[jdx_b],val);
+		}
+	}
+	board[min_idx].value = 0;
+	board[min_idx].n_allowed = num_allowed;
+	for(i = 1; i <= num_allowed;i++){
+		board[min_idx].base_array[i] = base_array[i];
+	}
+	return NO_SOLN;
 }
 
