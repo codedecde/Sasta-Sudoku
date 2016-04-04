@@ -122,7 +122,7 @@ int main(int argc, char *argv[]){
 	double start = omp_get_wtime();
 	int **outputGrid = solveSudoku(originalGrid);
 	double finish = omp_get_wtime();
-	printf("************************OUTPUT GRID***********************\n");
+	/*printf("************************OUTPUT GRID***********************\n");
 	for (i=0;i<SIZE;i++){
 		for (j=0;j<SIZE;j++)
 			printf("%d ",outputGrid[i][j]);
@@ -134,5 +134,5 @@ int main(int argc, char *argv[]){
 	}
 	else{
 		printf("NO SOLUTION FOUND\nTIME =%lf\n",(finish-start));
-	}
+	}*/
 }
