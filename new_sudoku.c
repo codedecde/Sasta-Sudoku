@@ -10,7 +10,9 @@
 #define SOLVED 0
 
 #define INITIAL_POOL_SIZE 5
+#define WORKPOOL_SIZE_BOUND 10
 
+#define MAX_INT 100000
 struct cell_t; // r, c, allowed, n_allowed
 typedef struct cell_t cell_t;
 	// Functions of cell_t
@@ -257,7 +259,10 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 	
 	// ugliest mf ever... returns -1 if number of possible branches < THRESHOLD_TO_BRANCH (macro defined.)
 	int branch(pool_t* this, cell_t* board, int max_pushes) {
-	// The following arrays will help me push into the workpool.
+		// The following arrays will help me push into the workpool.
+		if(this->sz > WORKPOOL_SIZE_BOUND) { // WORKPOOL TOO LARGE.
+			return -1;
+		}
 		int * initialization_helper[SIZE+1]; // idx-i is the array (int*) of indices in board which have i allowed values
 		int  initialization_helper_sizes[SIZE+1]; // idx-i is the number of indices in board which have i allowed values
 		int mypushes = 0;
@@ -417,16 +422,58 @@ int** solveSudoku(int** originalGrid){
 
 
 	pool_t* workpool = (pool_t*) malloc(sizeof(pool_t)); // Really just three integers.
-	workpool->hd = NULL; workpool->tl = NULL; workpool->sz = 0;
+	workpool->hd = NULL; 
+	workpool->tl = NULL; 
+	workpool->sz = 0;
 
-	branch( workpool, board, INITIAL_POOL_SIZE);
+
+	branch( workpool, board, INITIAL_POOL_SIZE );
 	
-	#pragma omp parallel
+	int solution_found;
+	solution_found = 0;
+	cell_t* solved_board;
+	#pragma omp parallel shared(solution_found) private(error)
 	{
-		// Worker thread.
-		while( )
+		cell_t* thread_board;
+		while(!solution_found) {
+			#pragma omp critical
+			{
+				// WHY CAN'T I HAVE ALIGNED BRACKETS?!
+				thread_board = (cell_t*)popf(workpool); // TODO: Convert to POP
+			}
+			if(solution_found) break;
+			error = heuristic_solve(thread_board); // error is a private variable;
+			if(error == SOLVED) {
+				// #pragma omp atomic
+				#pragma omp critical
+					solved_board = thread_board;
+				solution_found = 1; // Doesn't need to be critical. it is set to 1 afterall.
+				break;
+			}
+			if(branch(workpool, thread_board, 5) == -1) { // This function is thread_safe inside the 
+				error = dfs(thread_board);
+			}
+			if( error == SOLVED ) {
+				#pragma omp critical
+					solved_board = thread_board;
+				solution_found = 1; // Doesn't need to be critical. it is set to 1 afterall.
+				break;
+			}
+			free(thread_board);
+			thread_board = NULL;		
+		}
+		// Got here only by breaking or by solution_found being true...
+		if(error == SOLVED) { // This thread found the solution.
+			// solved_board must've been set.
+			#pragma omp critical
+			{
+				solved_board = deepcopy_board(thread_board);
+			}
+		} else { // my thread_board is NOT a solution.
+			free(thread_board);
+		}
 	}
-	return cell2board(board);
+	return cell2board(solved_board);
 
 }
 
