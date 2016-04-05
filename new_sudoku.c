@@ -1,8 +1,8 @@
 #include <stdio.h>	// for god knows what.
 #include <stdlib.h> // for malloc?
 #include <string.h> // for memcpy?
-#include "sudoku.h"
 #include <assert.h>
+#include "sudoku.h"
 // #define SIZE 9
 #define BOARD_SIZE (SIZE*SIZE + 1)
 
@@ -19,14 +19,15 @@ typedef struct cell_t cell_t;
 	// Functions of cell_t
 	void cell_init(cell_t* this);
 	int is_allowed(cell_t* this, int val);
-	void add_allowed(cell_t*, int);
-	void remove_allowed(cell_t* this, int val);
+	int add_allowed(cell_t*, int); // returns -1 on behaviour dependent on this having a non-zero value
+	int remove_allowed(cell_t* this, int val); // returns -1 on behaviour dependent on this having a non-zero value
 	int set_value(cell_t*, int);
 	int cell_destructor(cell_t*);
 	cell_t* deepcopy_board(cell_t* this);
 	
 	void print_cell(cell_t*);
 	void print_board(cell_t*);
+
 struct pool_t; // Thread's access this... array of board's, FIFO/LIFO/PQ behaviour to be defined.
 	struct pool_node_t; // private struct for pool_t really.
 typedef struct pool_t pool_t;
@@ -51,57 +52,63 @@ struct cell_t {
 	int base_array[SIZE + 1];
 	int n_allowed;
 	int value;
-};
-	// RELATED FUNCTIONS;
+}; // This is ok.
 	void cell_init(cell_t* this) {
 		//this->list = (int*) malloc( (SIZE+1)*sizeof(int) ); // idx0 corresponds to zilch.
 		//this->base_array = (int*) malloc( (SIZE+1)*sizeof(int) ); // idx0 is useless... value 0 means not allowed.
 		memset(this->base_array, 0, (SIZE+1)*sizeof(int));
-		memset(this->base_array, 0, (SIZE+1)*sizeof(int));
+		memset(this->list, 0, (SIZE+1)*sizeof(int)); // Not guaranteed, but no problem in doing it.
 		this->n_allowed = 0;
 		this->value = 0;
 	}
-
 	int is_allowed(cell_t* this, int val) {
-		return (this->base_array[val] > 0) ? 1 : 0  ;
+		return (((val>0) && (this->base_array[val] > 0)) ? 1 : 0 );
 	}
-	void add_allowed(cell_t* this, int val) {
-		if(this->base_array[val] || (this->value!=0) ) {
-			return; // Do nothing;	
-		} else {
-			this->n_allowed++; // This must happen first because our list and base_array are 1-indexed
-			this->list[this->n_allowed] = val;
-			this->base_array[val] = this->n_allowed;
-			assert(this->n_allowed <= SIZE);
-		}
-	}
-
-	void remove_allowed(cell_t* this, int val) {
-		if(this->value != 0)
-			return;
-
-		int idx_list = this->base_array[val];
-		if (idx_list) { // it is present in the array.
-			// Case 1: It is the tail of the list.
-			if (this->n_allowed == idx_list) { // 1-indexed means that their equality is what we care about.
-				this->n_allowed--;
-				assert(this->n_allowed >= 0);
-				this->base_array[val] = 0; // The value is not allowed.
+	int add_allowed(cell_t* this, int val) {
+		if (this->value == 0) {
+			if (this->base_array[val] > 0) { // val is already allowed
+				return 0;
 			} else {
-				// Case 2: It is not the tail of the list
-					// Subcase 1: It is the only element...in which case it'll also be the tail of the list.
-					// Subcase 2: There is some other element that is the tail of the array.	
-				// We only need to worry about subcase 2.
-				// Swap the items at idx_list and this->n_allowed;
-				int temp_val;
-				this->base_array[val] = 0;
-				this->list[idx_list] = this->list[this->n_allowed]; // New value.
-				this->base_array[ this->list[this->n_allowed] ] = idx_list;
-				this->n_allowed--;
-				assert(this->n_allowed >= 0 );
-			}
+				this->n_allowed++;
+				this->list[this->n_allowed] = val;
+				this->base_array[val] = this->n_allowed;
+				return 1;
+			}		
+		} else { // value is nonzero, nothing is changed. base_array and nallowed must remain as earlier.
+			return -1;
 		}
 	}
+
+	int remove_allowed(cell_t* this, int val) {
+		int idx_list = this->base_array[val];
+		if ( this->value != 0 ) {// This is the case where nothing is allowed anyway. It should be covered by other case.
+			return -1; // Special behaviour, no?
+		} 
+		if ( idx_list==0 ) { // This is the case where the given val is not actually allowed.)
+			return 0;
+		}
+		if (this->n_allowed == idx_list) { // 1-indexed means that their equality is what we care about.
+			this->n_allowed--;
+			assert(this->n_allowed >= 0);
+			this->base_array[val] = 0; // The value is not allowed.
+			return 1;
+			// We make no guarantees about the this->list values at indices > n_allowed.
+		} else {
+			// Case 2: It is not the tail of the list
+				// Subcase 1: It is the only element...in which case it'll also be the tail of the list.
+				// Subcase 2: There is some other element that is the tail of the array.	
+			// We only need to worry about subcase 2.
+			// Swap the items at idx_list and this->n_allowed;
+			// Note: THIS REORDERS THE FRIGGIN LIST. however, if my value has been set, it shouldn't matter.
+			this->base_array[val] = 0;
+			this->list[idx_list] = this->list[this->n_allowed]; // New value.
+			this->base_array[ this->list[this->n_allowed] ] = idx_list;
+			this->n_allowed--;
+			assert(this->n_allowed >= 0 );
+			return 1;
+		}
+	}
+
 
 	int set_value(cell_t* this, int val) {
 		if(this->value == 0) {
@@ -112,8 +119,8 @@ struct cell_t {
 
 			return 1; // On success?
 		} else {
-			assert(this->n_allowed == 0);
 			this->value = val;
+			assert(this->n_allowed == 0);
 		}
 		return -1;
 	}
@@ -378,14 +385,22 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 	void print_board(cell_t* board) {
 		int r,c;
 		printf("\n\t\tprinting board\n");
+		for(c=-1; c<SIZE; c++) {
+			if(c==-1) printf("   ");
+			else printf("%02d ", c);
+		} 
+		printf("\n");
 		for(r=0; r<SIZE; r++) {
+			printf("%02d ",r);
 			for(c=0; c<SIZE; c++) {
-				printf("%d ", board[r*SIZE + c + 1].value);
+				printf("%02d ", board[r*SIZE + c + 1].value);
 			}
 			printf("\n");
 		}
 		printf("\n\n");
 	}
+
+
 /*
   Function call made from main reaches here
 */
@@ -421,23 +436,23 @@ int** solveSudoku(int** originalGrid){
 	}
 	// board is the original problem.
 	// Check the initializations
-	int ii;
-	for(ii = 1; ii < BOARD_SIZE;ii++){
-		if(board[ii].n_allowed == 0){
-			assert(board[ii].value != 0);
-			printf("Value of (%d,%d) = %d\n",board[ii].row,board[ii].col,board[ii].value);
-		}
-		else{
-			int jj;
-			assert(board[ii].value == 0);
-			printf("Values allowed for (%d,%d) = ",board[ii].row,board[ii].col);
-			for(jj = 1; jj <= board[ii].n_allowed; jj++){
-				printf("%d ",board[ii].list[jj]);
-			}
-			printf("\n");
+	// int ii;
+	// for(ii = 1; ii < BOARD_SIZE;ii++){
+	// 	if(board[ii].n_allowed == 0){
+	// 		assert(board[ii].value != 0);
+	// 		printf("Value of (%d,%d) = %d\n",board[ii].row,board[ii].col,board[ii].value);
+	// 	}
+	// 	else{
+	// 		int jj;
+	// 		assert(board[ii].value == 0);
+	// 		printf("Values allowed for (%d,%d) = ",board[ii].row,board[ii].col);
+	// 		for(jj = 1; jj <= board[ii].n_allowed; jj++){
+	// 			printf("%d ",board[ii].list[jj]);
+	// 		}
+	// 		printf("\n");
 
-		}
-	}
+	// 	}
+	// }
 	// All initializations are correct.
 	
 	// Initialize pool_t
@@ -566,9 +581,10 @@ int heuristic_solve(cell_t* board){
 int dfs(cell_t* board){
 	/*
 	Currently iterate through the entire board
-	Can we do better ?? ... yes... look at brute_force.c
+	Can we do better ?? ... TODO : yes... look at brute_force.c
 	*/
-	int min_val = MAX_INT;
+	// ASSERT : input, i.e., board is valid.
+	int min_val = SIZE+1; // Good enough.
 	int min_idx = 0;
 	int i = 1;
 	for(;i<BOARD_SIZE;i++){
@@ -584,10 +600,11 @@ int dfs(cell_t* board){
 			}
 		}
 	}
+	// printf("#dfs: %d\n", min_idx);
 	if(min_idx == 0){
 		return SOLVED;
 	}
-
+	
 	int num_allowed = board[min_idx].n_allowed;
 	int r = (min_idx - 1) / SIZE;
 	int c = (min_idx - 1) % SIZE;
@@ -595,38 +612,74 @@ int dfs(cell_t* board){
 	int c_prime = c - (c % MINIGRIDSIZE);
 	int base_array[SIZE+1];
 	
-	memmove(base_array,board[min_idx].base_array,(SIZE+1)*sizeof(int));
-	base_array[0] = 0;
+	// print_cell(&board[min_idx]);
+	memcpy((void*)base_array,(void*)board[min_idx].base_array,(SIZE+1)*sizeof(int));
+	
+	// printf("n_allowed=%d\n", num_allowed);
+	// for(i=0; i<(SIZE+1); i++) {
+	// 	printf("%d ", base_array[i]);
+	// }
+	// printf("\n");
+	// base_array[0] = 0;
 
 	int lst_indices[BOARD_SIZE];
 	memset(lst_indices,0, BOARD_SIZE*sizeof(int));
-	int lst_idx;
+	int lst_idx = -1; // It is set withing the loop too...
 	// lst_idx = 0; ... initialized inside forloop.
 	for(i = 1; i <= num_allowed;i++){
 		int val = board[min_idx].list[i];
+		int jdx;
+		
+		// ASSERTION CODE FOLLOWS
+				int fl_valid_set_value = 1;
+				for(jdx = 0; jdx<SIZE;++jdx) {
+					int jdx_r = r*SIZE + jdx + 1;
+				  	int jdx_c = jdx*SIZE + c + 1;
+				  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+				  	
+				  	if( (board[jdx_r].value == val && (jdx_r != min_idx)/*!= 0 && is_allowed(&board[min_idx], board[jdx_r].value)*/) ||
+				  		(board[jdx_c].value == val && (jdx_c != min_idx)/*!= 0 && is_allowed(&board[min_idx], board[jdx_c].value)*/) ||
+				  		(board[jdx_b].value == val && (jdx_b != min_idx)/*!= 0 && is_allowed(&board[min_idx], board[jdx_b].value)*/) ) {
+				  		
+				  		fl_valid_set_value = 0; break;
+				  	}
+				}
+				if( fl_valid_set_value!=1 ) {
+					printf("\tASSERTION FAIL :<\n");
+					print_board(board);
+					printf("min_idx=%d ; val=%d\n", min_idx, val);
+					print_cell(&board[min_idx]);
+					int extremely_temp_iter;
+					printf("base_array original:\n");
+					for(extremely_temp_iter = 0; extremely_temp_iter<(SIZE+1); extremely_temp_iter++) 
+						printf("%d ", base_array[i]);
+					printf("\n");
+					assert(fl_valid_set_value == 1);
+				}
+		
 		set_value(&board[min_idx],val);
-		int jdx = 0;
-		lst_idx = 0;
+		jdx = 0;
+		lst_idx = -1;
 		for(;jdx < SIZE;jdx++){
 			int jdx_r = r*SIZE + jdx + 1;
 		  	int jdx_c = jdx*SIZE + c + 1;
 		  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
 		  	if( is_allowed(&board[jdx_r],val) ) {
-		  		assert(jdx_r != min_idx); 
-		  		lst_indices[lst_idx] = jdx_r;
+		  		assert(jdx_r != min_idx); // won't get here becase if condition stops it. set_value works.
 		  		lst_idx++;
+		  		lst_indices[lst_idx] = jdx_r;
 		  		remove_allowed(&board[jdx_r],val);
 		  	}
 		  	if( is_allowed(&board[jdx_c],val) ) {
 		  		assert(jdx_c != min_idx); 
-		  		lst_indices[lst_idx] = jdx_c;
 		  		lst_idx++;
+		  		lst_indices[lst_idx] = jdx_c;
 		  		remove_allowed(&board[jdx_c],val);
 		  	}
 		  	if( is_allowed(&board[jdx_b],val) ) {
 		  		assert(jdx_b != min_idx); 
-		  		lst_indices[lst_idx] = jdx_b;
 		  		lst_idx++;
+		  		lst_indices[lst_idx] = jdx_b;
 		  		remove_allowed(&board[jdx_b],val);
 		  	}
 		}
@@ -637,12 +690,11 @@ int dfs(cell_t* board){
 		for(; lst_idx>-1; lst_idx--) {
 			add_allowed(&board[ lst_indices[lst_idx] ], val);
 		}
-		
 	}
 	board[min_idx].value = 0;
 	board[min_idx].n_allowed = num_allowed;
 	
-	memmove(board[min_idx].base_array,base_array,(SIZE+1)*sizeof(int));
+	memcpy(board[min_idx].base_array,base_array,(SIZE+1)*sizeof(int));
+	// free(base_array); ... doesn't need to be freed. Its a stack object.
 	return NO_SOLN;
 }
-
