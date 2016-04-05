@@ -10,7 +10,7 @@
 #define PARTIAL_SOLN 1
 #define SOLVED 0
 
-#define INITIAL_POOL_SIZE 5
+#define INITIAL_POOL_SIZE 4
 #define WORKPOOL_SIZE_BOUND 10
 
 #define MAX_INT 100000
@@ -141,7 +141,6 @@ struct cell_t {
 	 */
 	cell_t* deepcopy_board(cell_t* this) {
 		cell_t* other = (cell_t*)malloc(BOARD_SIZE*sizeof(cell_t));
-		// memset(other, 0, BOARD_SIZE*sizeof(cell_t));
 		int i = 1;
 		// print_board(this);
 		for(; i<BOARD_SIZE; ++i) {
@@ -151,18 +150,7 @@ struct cell_t {
 			other[i].n_allowed = this[i].n_allowed;
 			other[i].value = this[i].value;
 			memmove(other[i].list,this[i].list,(SIZE+1)*sizeof(int));
-			memmove(other[i].base_array,this[i].base_array,(SIZE+1)*sizeof(int));
-
-			//other[i].list = (int*)malloc((SIZE+1)*sizeof(int));
-			//other[i].base_array = (int*)malloc((SIZE+1)*sizeof(int));
-			// memcpy((void*)(other[i].list), (void*)(this[i].list), (SIZE+1)*sizeof(int));
-			/*int j;
-			for(j=0; j<=SIZE; j++) {
-				(other[i].list)[j] = (this[i].list)[j];
-				(other[i].base_array)[j] = (this[i].base_array)[j];
-			}*/
-			// memcpy((void*)(other[i].base_array), (void*)(this[i].base_array), (SIZE+1)*sizeof(int));
-			
+			memmove(other[i].base_array,this[i].base_array,(SIZE+1)*sizeof(int));  
 		}
 		return other;
 	}
@@ -192,10 +180,10 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 	pushf(x)
 	Return time state: [x,p,q,r,s...]
 	 */
-	cell_t* pushf(pool_t* this, cell_t* new_board) { // ASSERT: cell_t* is a fixed size board etc.
+	cell_t* pushf(pool_t* this, cell_t* new_board) { 
+		// ASSERT: cell_t* is a fixed size board etc.
 		struct pool_node_t* new_node = (pool_node_t*) malloc(sizeof(pool_node_t));
-		// new_node->board_config = (cell_t*)malloc((BOARD_SIZE)*sizeof(cell_t));
-		// memcpy((void*)new_node->board_config, (void*)new_board, (BOARD_SIZE)*sizeof(cell_t));
+
 		new_node->board_config = deepcopy_board(new_board);
 		new_node->next = this->hd;
 		new_node->prev = NULL;
@@ -216,8 +204,7 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 	*/
 	cell_t* pushb(pool_t* this, cell_t* new_board) {
 		struct pool_node_t* new_node = (pool_node_t*) malloc(sizeof(pool_node_t));
-		// new_node->board_config = (cell_t*)malloc((BOARD_SIZE)*sizeof(cell_t));
-		// memcpy((void*)new_node->board_config, (void*)new_board, (BOARD_SIZE)*sizeof(cell_t));
+		
 		new_node->board_config = deepcopy_board(new_board);
 		new_node->next = NULL;
 		new_node->prev = this->tl;
@@ -317,14 +304,27 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 			}
 			return -1; // Don't branch
 		}
-
+		// int idx = 0;
+		// for (idx = 0;idx <=SIZE;idx++){
+		// 	 if(initialization_helper_sizes[idx] == 0)
+		// 	   	assert(initialization_helper[idx] == NULL);
+		// 	 else{
+		// 	   	printf("Num Empty = %d\n",idx);
+		// 	   	int jj = 0;
+		// 	   	for(jj=0;jj<initialization_helper_sizes[idx];jj++)
+		// 	     	printf("%d %d\t",(initialization_helper[idx][jj] -1) / SIZE, (initialization_helper[idx][jj]-1) % SIZE);
+		// 	   	printf("\n");
+		// 	 }
+		// }
+		
 			// Iterates initialization_helper ... values between 2 and SIZE... Note: 0,1 are also included, but they're likely to be empty.
 		int idx_hma = 0; 
 			// Iterates initialization_helper[hma] ... values between 0 and initialization_helper_sizes[hma]
 		int idx_cell_list;
-		for(hma=0; hma<=SIZE; hma++) {
-			if( mypushes >= max_pushes ) break;
-			for( idx_hma=0; idx_hma< initialization_helper_sizes[hma]; idx_hma++) {
+		for(hma=0; hma<=SIZE; ++hma) {
+			
+
+			for( idx_hma=0; idx_hma < initialization_helper_sizes[hma]; ++idx_hma) {
 				int branch_on = initialization_helper[hma][idx_hma];
 
 				for(idx_cell_list=1; idx_cell_list<=board[branch_on].n_allowed; ++idx_cell_list) {
@@ -341,10 +341,13 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 					}
 					
 					mypushes++;
-					set_value(&((newboard)[branch_on]), board[branch_on].list[idx_cell_list]);
+					
+					set_value(&((newboard)[branch_on]), newboard[branch_on].list[idx_cell_list]);
 					//print_board(newboard);
 				}
+				if( mypushes >= max_pushes ) break;
 			}
+			if( mypushes >= max_pushes ) break;
 		}
 
 		// Cleaning up after myself...
@@ -362,10 +365,10 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 	int** cell2board(cell_t* board){
 		int** new_board = malloc(SIZE * sizeof(int*));
 		int i;
-		for(i = 0;i < SIZE;i++){
+		for(i = 0;i < SIZE;++i){
 			new_board[i] = malloc(SIZE*sizeof(int));
 			int j;
-			for(j = 0;j < SIZE;j++){
+			for(j = 0;j < SIZE;++j){
 				int idx = SIZE*i + j + 1;
 				new_board[i][j] = board[idx].value;
 			}
@@ -393,14 +396,14 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 		int r,c;
 		printf("\n\t\tprinting board\n");
 		for(c=-1; c<SIZE; c++) {
-			if(c==-1) printf("   ");
-			else printf("%02d ", c);
+			if(c==-1) printf("  ");
+			else printf("%d ", c); //TODO : add %02
 		} 
 		printf("\n");
 		for(r=0; r<SIZE; r++) {
-			printf("%02d ",r);
+			printf("%d ",r);
 			for(c=0; c<SIZE; c++) {
-				printf("%02d ", board[r*SIZE + c + 1].value);
+				printf("%d ", board[r*SIZE + c + 1].value);
 			}
 			printf("\n");
 		}
@@ -411,6 +414,36 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 /*
   Function call made from main reaches here
 */
+ void debug_print(cell_t* board){
+ 	// Check the initializations
+	 int ii;
+	 for(ii = 1; ii < BOARD_SIZE;ii++){
+	 	if(board[ii].n_allowed == 0){
+	 		assert(board[ii].value != 0);
+	 		printf("Value of (%d,%d) = %d\n",board[ii].row,board[ii].col,board[ii].value);
+	 	}
+	 	else{
+	 		int jj;
+	 		assert(board[ii].value == 0);
+	 		printf("Values allowed for (%d,%d) = ",board[ii].row,board[ii].col);
+	 		for(jj = 1; jj <= board[ii].n_allowed; jj++){
+	 			printf("%d ",board[ii].list[jj]);
+	 		}
+	 		printf("\n");
+
+	 	}
+	 }
+	// All initializations are correct.
+ }
+ void print_workpool(pool_t* workpool){
+ 	pool_node_t* iter = workpool->hd;
+ 	int ctr=0;
+ 	while(iter != NULL){
+ 		printf("ctr=%d\n",ctr++);
+ 		print_board(iter->board_config);
+ 		iter = iter->next;
+ 	}
+ }
 int** solveSudoku(int** originalGrid){
 	cell_t board[BOARD_SIZE];
 	int r,c;
@@ -442,82 +475,82 @@ int** solveSudoku(int** originalGrid){
 		}
 	}
 	// board is the original problem.
-	// Check the initializations
-	// int ii;
-	// for(ii = 1; ii < BOARD_SIZE;ii++){
-	// 	if(board[ii].n_allowed == 0){
-	// 		assert(board[ii].value != 0);
-	// 		printf("Value of (%d,%d) = %d\n",board[ii].row,board[ii].col,board[ii].value);
-	// 	}
-	// 	else{
-	// 		int jj;
-	// 		assert(board[ii].value == 0);
-	// 		printf("Values allowed for (%d,%d) = ",board[ii].row,board[ii].col);
-	// 		for(jj = 1; jj <= board[ii].n_allowed; jj++){
-	// 			printf("%d ",board[ii].list[jj]);
-	// 		}
-	// 		printf("\n");
-
-	// 	}
-	// }
-	// All initializations are correct.
 	
+	
+	 // cell_t* newboard = deepcopy_board(board);
+	 // dfs(newboard);
+	 // print_board(newboard);
+	 // printf("\n\n--------------------------------------------------\n\n");
+	 // print_board(board);
+
 	// Initialize pool_t
+	
+	
+	//print_workpool(workpool);
+
 	int error = PARTIAL_SOLN;
-	error = heuristic_solve(board); // Will become a shared variable soon. TODO : Uncomment.
+	error = dfs(board); // Will become a shared variable soon. TODO : Uncomment.
 	if (error == SOLVED || error == NO_SOLN) {
 		return cell2board(board);
 	} // Simplify the problem... without parallelization man.
-
+	
 
 	pool_t* workpool = (pool_t*) malloc(sizeof(pool_t)); // Really just three integers.
 	workpool->hd = NULL; 
 	workpool->tl = NULL; 
 	workpool->sz = 0;
 	workpool->turn = 0;
-
-
-	branch( workpool, board, INITIAL_POOL_SIZE );
+	branch( workpool, board, INITIAL_POOL_SIZE );	//Assert whether branch occurs correctly. Also Deepcopy
 	
 	int solution_found;
 	solution_found = 0;
 	cell_t* solved_board = NULL;
-	#pragma omp parallel shared(solution_found) private(error)
+	#pragma omp parallel shared(solution_found,solved_board) private(error)
 	{
-		cell_t* thread_board;
+		error = PARTIAL_SOLN;
+		cell_t* thread_board;	//Local boards
 		while(!solution_found) {
+			
 			#pragma omp critical
 			{
-				thread_board = (cell_t*)pop(workpool); // TODO: Convert to POP
+				thread_board = (cell_t*)pop(workpool); // TODO: Check POP
 			}
 			if(solution_found) break;
 			error = heuristic_solve(thread_board); // error is a private variable;
 			if(error == SOLVED) {
 				
-				#pragma omp critical
-				{
-					if(solved_board != NULL)
-						solved_board = thread_board;
+				// #pragma omp critical
+				// {
+				// 	if(solved_board != NULL)
+				// 		solved_board = thread_board;
+				// }
 
-				}
 				solution_found = 1; // Doesn't need to be critical. it is set to 1 afterall.
 				break;
 			}
+			else if(error == NO_SOLN){
+				free(thread_board);
+				thread_board = NULL;
+				continue;
+			}
+
 			if(branch(workpool, thread_board, 5) == -1) { // This function is thread_safe inside the 
 				error = dfs(thread_board);
 			}
 			if( error == SOLVED ) {
-				#pragma omp critical
-				{
-					if(solved_board != NULL)
-						solved_board = thread_board;
-				}
+				// #pragma omp critical
+				// {
+				// 	if(solved_board != NULL)
+				// 		solved_board = thread_board;
+				// }
 				solution_found = 1; // Doesn't need to be critical. it is set to 1 afterall.
 				break;
 			}
 			free(thread_board);
 			thread_board = NULL;		
-		}
+		
+		}	//End while
+		
 		// Got here only by breaking or by solution_found being true...
 		if(error == SOLVED) { // This thread found the solution.
 			// solved_board must've been set.
