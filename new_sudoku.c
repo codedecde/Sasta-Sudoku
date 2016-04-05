@@ -106,6 +106,8 @@ struct cell_t {
 					// This is the equivalent of free-ing the base_array in old cell_t
 			}
 			return 1; // On success?
+		} else {
+			this->value = val;
 		}
 		return -1;
 	}
@@ -530,7 +532,7 @@ int heuristic_solve(cell_t* board){
 int dfs(cell_t* board){
 	/*
 	Currently iterate through the entire board
-	Can we do better ?? 
+	Can we do better ?? ... yes... look at brute_force.c
 	*/
 	int min_val = MAX_INT;
 	int min_idx = -1;
@@ -560,30 +562,54 @@ int dfs(cell_t* board){
 	for(i = 1; i <= num_allowed;i++){
 		base_array[i] = board[min_idx].base_array[i];
 	}
+
+	int lst_indices[BOARD_SIZE];
+	memset(lst_indices,0, BOARD_SIZE*sizeof(int));
+	int lst_idx;
+	// lst_idx = 0; ... initialized inside forloop.
 	for(i = 1; i <= num_allowed;i++){
 		int val = board[min_idx].list[i];
 		set_value(&board[min_idx],val);
 		int jdx = 0;
+		lst_idx = 0;
 		for(;jdx < SIZE;jdx++){
 			int jdx_r = r*SIZE + jdx + 1;
 		  	int jdx_c = jdx*SIZE + c + 1;
 		  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
-		  	remove_allowed(&board[jdx_r],val);
-		  	remove_allowed(&board[jdx_c],val); 
-		  	remove_allowed(&board[jdx_b],val);
+		  	if( is_allowed(&board[jdx_r],val) ) {
+		  		lst_indices[lst_idx] = jdx_r;
+		  		lst_idx++;
+		  		remove_allowed(&board[jdx_r],val);
+		  	}
+		  	if( is_allowed(&board[jdx_c],val) ) {
+		  		lst_indices[lst_idx] = jdx_c;
+		  		lst_idx++;
+		  		remove_allowed(&board[jdx_c],val);
+		  	}
+		  	if( is_allowed(&board[jdx_b],val) ) {
+		  		lst_indices[lst_idx] = jdx_b;
+		  		lst_idx++;
+		  		remove_allowed(&board[jdx_b],val);
+		  	}
 		}
 		int error_code = dfs(board);
 		if(error_code == SOLVED){
 			return SOLVED;
 		}
-		for(;jdx < SIZE;jdx++){
-			int jdx_r = r*SIZE + jdx + 1;
-		  	int jdx_c = jdx*SIZE + c + 1;
-		  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
-		  	add_allowed(&board[jdx_r],val);
-		  	add_allowed(&board[jdx_c],val); 
-		  	add_allowed(&board[jdx_b],val);
+		for(; lst_idx>-1; lst_idx--) {
+			add_allowed(&board[ lst_indices[lst_idx] ], val);
 		}
+		// jdx = 0; // Need to reset iterator, bro.
+
+		// // WRONG! ... you add them only if they were originally allowed.
+		// for(;jdx < SIZE;jdx++){
+		// 	int jdx_r = r*SIZE + jdx + 1;
+		//   	int jdx_c = jdx*SIZE + c + 1;
+		//   	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+		//   	add_allowed(&board[jdx_r],val);
+		//   	add_allowed(&board[jdx_c],val);
+		//   	add_allowed(&board[jdx_b],val);
+		// }
 	}
 	board[min_idx].value = 0;
 	board[min_idx].n_allowed = num_allowed;
