@@ -2,6 +2,7 @@
 #include <stdlib.h> // for malloc?
 #include <string.h> // for memcpy?
 #include "sudoku.h"
+#include <assert.h>
 // #define SIZE 9
 #define BOARD_SIZE (SIZE*SIZE + 1)
 
@@ -46,15 +47,15 @@ typedef struct pool_t pool_t;
 struct cell_t {
 	int row;
 	int col;
-	int* list;
-	int* base_array;
+	int list[SIZE + 1];
+	int base_array[SIZE + 1];
 	int n_allowed;
 	int value;
 };
 	// RELATED FUNCTIONS;
 	void cell_init(cell_t* this) {
-		this->list = (int*) malloc( (SIZE+1)*sizeof(int) ); // idx0 corresponds to zilch.
-		this->base_array = (int*) malloc( (SIZE+1)*sizeof(int) ); // idx0 is useless... value 0 means not allowed.
+		//this->list = (int*) malloc( (SIZE+1)*sizeof(int) ); // idx0 corresponds to zilch.
+		//this->base_array = (int*) malloc( (SIZE+1)*sizeof(int) ); // idx0 is useless... value 0 means not allowed.
 		memset(this->base_array, 0, (SIZE+1)*sizeof(int));
 		memset(this->base_array, 0, (SIZE+1)*sizeof(int));
 		this->n_allowed = 0;
@@ -62,24 +63,29 @@ struct cell_t {
 	}
 
 	int is_allowed(cell_t* this, int val) {
-		return (this->base_array[val]?1:0);
+		return (this->base_array[val] > 0) ? 1 : 0  ;
 	}
 	void add_allowed(cell_t* this, int val) {
-		if(this->base_array[val]) {
+		if(this->base_array[val] || (this->value!=0) ) {
 			return; // Do nothing;	
 		} else {
 			this->n_allowed++; // This must happen first because our list and base_array are 1-indexed
 			this->list[this->n_allowed] = val;
 			this->base_array[val] = this->n_allowed;
+			assert(this->n_allowed <= SIZE);
 		}
 	}
 
 	void remove_allowed(cell_t* this, int val) {
+		if(this->value != 0)
+			return;
+
 		int idx_list = this->base_array[val];
 		if (idx_list) { // it is present in the array.
 			// Case 1: It is the tail of the list.
 			if (this->n_allowed == idx_list) { // 1-indexed means that their equality is what we care about.
 				this->n_allowed--;
+				assert(this->n_allowed >= 0);
 				this->base_array[val] = 0; // The value is not allowed.
 			} else {
 				// Case 2: It is not the tail of the list
@@ -92,6 +98,7 @@ struct cell_t {
 				this->list[idx_list] = this->list[this->n_allowed]; // New value.
 				this->base_array[ this->list[this->n_allowed] ] = idx_list;
 				this->n_allowed--;
+				assert(this->n_allowed >= 0 );
 			}
 		}
 	}
@@ -100,21 +107,17 @@ struct cell_t {
 		if(this->value == 0) {
 			this->value = val;
 			this->n_allowed = 0;
-			int idx_base_array = 1;
-			for(; idx_base_array <= SIZE; ++idx_base_array) {
-				this->base_array[ idx_base_array ] = 0; // Say that the value is not allowed.
-					// This is the equivalent of free-ing the base_array in old cell_t
-			}
+			
+			memset(this->base_array,0,(SIZE + 1)*sizeof(int));
+
 			return 1; // On success?
 		} else {
+			assert(this->n_allowed == 0);
 			this->value = val;
 		}
 		return -1;
 	}
-	int cell_destructor(cell_t* this) {
-		free(this->list);
-		free(this->base_array);
-	}
+	
 	// WHAT WOULD HAVE BEEN A GORGEOUS cell_t struct :'(
 
 	/*
@@ -122,8 +125,8 @@ struct cell_t {
 		struct cell_t {
 			int row;
 			int col;
-			int* list;
-			int* base_array;
+			int list[SIZE+1];
+			int base_array[SIZE+1];
 			int n_allowed;
 			int value;	
 		}
@@ -139,14 +142,17 @@ struct cell_t {
 			other[i].col = this[i].col;
 			other[i].n_allowed = this[i].n_allowed;
 			other[i].value = this[i].value;
-			other[i].list = (int*)malloc((SIZE+1)*sizeof(int));
-			other[i].base_array = (int*)malloc((SIZE+1)*sizeof(int));
+			memmove(other[i].list,this[i].list,(SIZE+1)*sizeof(int));
+			memmove(other[i].base_array,this[i].base_array,(SIZE+1)*sizeof(int));
+
+			//other[i].list = (int*)malloc((SIZE+1)*sizeof(int));
+			//other[i].base_array = (int*)malloc((SIZE+1)*sizeof(int));
 			// memcpy((void*)(other[i].list), (void*)(this[i].list), (SIZE+1)*sizeof(int));
-			int j;
+			/*int j;
 			for(j=0; j<=SIZE; j++) {
 				(other[i].list)[j] = (this[i].list)[j];
 				(other[i].base_array)[j] = (this[i].base_array)[j];
-			}
+			}*/
 			// memcpy((void*)(other[i].base_array), (void*)(this[i].base_array), (SIZE+1)*sizeof(int));
 			
 		}
@@ -322,7 +328,7 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 					
 					mypushes++;
 					set_value(&((newboard)[branch_on]), board[branch_on].list[idx_cell_list]);
-					print_board(newboard);
+					//print_board(newboard);
 				}
 			}
 		}
@@ -414,10 +420,29 @@ int** solveSudoku(int** originalGrid){
 		}
 	}
 	// board is the original problem.
+	// Check the initializations
+	int ii;
+	for(ii = 1; ii < BOARD_SIZE;ii++){
+		if(board[ii].n_allowed == 0){
+			assert(board[ii].value != 0);
+			printf("Value of (%d,%d) = %d\n",board[ii].row,board[ii].col,board[ii].value);
+		}
+		else{
+			int jj;
+			assert(board[ii].value == 0);
+			printf("Values allowed for (%d,%d) = ",board[ii].row,board[ii].col);
+			for(jj = 1; jj <= board[ii].n_allowed; jj++){
+				printf("%d ",board[ii].list[jj]);
+			}
+			printf("\n");
 
+		}
+	}
+	// All initializations are correct.
+	
 	// Initialize pool_t
 	int error = PARTIAL_SOLN;
-	error = heuristic_solve(board); // Will become a shared variable soon. TODO : Uncomment.
+	error = dfs(board); // Will become a shared variable soon. TODO : Uncomment.
 	if (error == SOLVED || error == NO_SOLN) {
 		return cell2board(board);
 	} // Simplify the problem... without parallelization man.
@@ -433,31 +458,37 @@ int** solveSudoku(int** originalGrid){
 	
 	int solution_found;
 	solution_found = 0;
-	cell_t* solved_board;
+	cell_t* solved_board = NULL;
 	#pragma omp parallel shared(solution_found) private(error)
 	{
 		cell_t* thread_board;
 		while(!solution_found) {
 			#pragma omp critical
 			{
-				// WHY CAN'T I HAVE ALIGNED BRACKETS?!
 				thread_board = (cell_t*)popf(workpool); // TODO: Convert to POP
 			}
 			if(solution_found) break;
-			error = heuristic_solve(thread_board); // error is a private variable;
+			/*error = heuristic_solve(thread_board); // error is a private variable;
 			if(error == SOLVED) {
-				// #pragma omp atomic
+				
 				#pragma omp critical
-					solved_board = thread_board;
+				{
+					if(solved_board != NULL)
+						solved_board = thread_board;
+
+				}
 				solution_found = 1; // Doesn't need to be critical. it is set to 1 afterall.
 				break;
-			}
+			}*/
 			if(branch(workpool, thread_board, 5) == -1) { // This function is thread_safe inside the 
 				error = dfs(thread_board);
 			}
 			if( error == SOLVED ) {
 				#pragma omp critical
-					solved_board = thread_board;
+				{
+					if(solved_board != NULL)
+						solved_board = thread_board;
+				}
 				solution_found = 1; // Doesn't need to be critical. it is set to 1 afterall.
 				break;
 			}
@@ -469,11 +500,14 @@ int** solveSudoku(int** originalGrid){
 			// solved_board must've been set.
 			#pragma omp critical
 			{
-				solved_board = deepcopy_board(thread_board);
+				if(!solved_board)
+					solved_board = deepcopy_board(thread_board);
 			}
-		} else { // my thread_board is NOT a solution.
-			free(thread_board);
 		}
+		free(thread_board); 
+		/*else { // my thread_board is NOT a solution.
+			free(thread_board);
+		}*/
 	}
 	return cell2board(solved_board);
 
@@ -535,7 +569,7 @@ int dfs(cell_t* board){
 	Can we do better ?? ... yes... look at brute_force.c
 	*/
 	int min_val = MAX_INT;
-	int min_idx = -1;
+	int min_idx = 0;
 	int i = 1;
 	for(;i<BOARD_SIZE;i++){
 		if(board[i].n_allowed != 0){
@@ -550,18 +584,19 @@ int dfs(cell_t* board){
 			}
 		}
 	}
-	if(min_idx == -1)
+	if(min_idx == 0){
 		return SOLVED;
+	}
+
 	int num_allowed = board[min_idx].n_allowed;
 	int r = (min_idx - 1) / SIZE;
 	int c = (min_idx - 1) % SIZE;
 	int r_prime = r - (r % MINIGRIDSIZE);
 	int c_prime = c - (c % MINIGRIDSIZE);
 	int base_array[SIZE+1];
+	
+	memmove(base_array,board[min_idx].base_array,(SIZE+1)*sizeof(int));
 	base_array[0] = 0;
-	for(i = 1; i <= num_allowed;i++){
-		base_array[i] = board[min_idx].base_array[i];
-	}
 
 	int lst_indices[BOARD_SIZE];
 	memset(lst_indices,0, BOARD_SIZE*sizeof(int));
@@ -577,16 +612,19 @@ int dfs(cell_t* board){
 		  	int jdx_c = jdx*SIZE + c + 1;
 		  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
 		  	if( is_allowed(&board[jdx_r],val) ) {
+		  		assert(jdx_r != min_idx); 
 		  		lst_indices[lst_idx] = jdx_r;
 		  		lst_idx++;
 		  		remove_allowed(&board[jdx_r],val);
 		  	}
 		  	if( is_allowed(&board[jdx_c],val) ) {
+		  		assert(jdx_c != min_idx); 
 		  		lst_indices[lst_idx] = jdx_c;
 		  		lst_idx++;
 		  		remove_allowed(&board[jdx_c],val);
 		  	}
 		  	if( is_allowed(&board[jdx_b],val) ) {
+		  		assert(jdx_b != min_idx); 
 		  		lst_indices[lst_idx] = jdx_b;
 		  		lst_idx++;
 		  		remove_allowed(&board[jdx_b],val);
@@ -599,23 +637,12 @@ int dfs(cell_t* board){
 		for(; lst_idx>-1; lst_idx--) {
 			add_allowed(&board[ lst_indices[lst_idx] ], val);
 		}
-		// jdx = 0; // Need to reset iterator, bro.
-
-		// // WRONG! ... you add them only if they were originally allowed.
-		// for(;jdx < SIZE;jdx++){
-		// 	int jdx_r = r*SIZE + jdx + 1;
-		//   	int jdx_c = jdx*SIZE + c + 1;
-		//   	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
-		//   	add_allowed(&board[jdx_r],val);
-		//   	add_allowed(&board[jdx_c],val);
-		//   	add_allowed(&board[jdx_b],val);
-		// }
+		
 	}
 	board[min_idx].value = 0;
 	board[min_idx].n_allowed = num_allowed;
-	for(i = 1; i <= num_allowed;i++){
-		board[min_idx].base_array[i] = base_array[i];
-	}
+	
+	memmove(board[min_idx].base_array,base_array,(SIZE+1)*sizeof(int));
 	return NO_SOLN;
 }
 
