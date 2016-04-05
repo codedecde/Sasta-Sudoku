@@ -40,6 +40,7 @@ typedef struct pool_t pool_t;
 	cell_t* pushb(pool_t*, cell_t*);
 	cell_t* popf(pool_t*);
 	cell_t* popb(pool_t*);
+	cell_t* pop(pool_t*);
 
 	#define THRESHOLD_FOR_BRANCH 10
 	int branch(pool_t* workpool, cell_t* board, int nbranches);
@@ -174,6 +175,7 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 	pool_node_t* hd;
 	pool_node_t* tl;
 	int sz;
+	int turn;
 };
 	// pool_t functions begin here.
 	int is_empty(pool_t* this) {
@@ -269,6 +271,11 @@ struct pool_t { // A doubly linked list. Allows for FIFO/LIFO.
 		cell_t* retval = ret_node->board_config;
 		free(ret_node);
 		return retval;
+	}
+	cell_t* pop(pool_t* this){
+		assert(this);
+		this->turn = (this->turn + 1) % 2;
+		return (this->turn % 2) ? popb(this) : popf(this);
 	}
 	// END OF WHAT WOULD'VE BEEN AN AMAZING (dead)pool.
 	
@@ -457,7 +464,7 @@ int** solveSudoku(int** originalGrid){
 	
 	// Initialize pool_t
 	int error = PARTIAL_SOLN;
-	error = dfs(board); // Will become a shared variable soon. TODO : Uncomment.
+	error = heuristic_solve(board); // Will become a shared variable soon. TODO : Uncomment.
 	if (error == SOLVED || error == NO_SOLN) {
 		return cell2board(board);
 	} // Simplify the problem... without parallelization man.
@@ -467,6 +474,7 @@ int** solveSudoku(int** originalGrid){
 	workpool->hd = NULL; 
 	workpool->tl = NULL; 
 	workpool->sz = 0;
+	workpool->turn = 0;
 
 
 	branch( workpool, board, INITIAL_POOL_SIZE );
@@ -480,10 +488,10 @@ int** solveSudoku(int** originalGrid){
 		while(!solution_found) {
 			#pragma omp critical
 			{
-				thread_board = (cell_t*)popf(workpool); // TODO: Convert to POP
+				thread_board = (cell_t*)pop(workpool); // TODO: Convert to POP
 			}
 			if(solution_found) break;
-			/*error = heuristic_solve(thread_board); // error is a private variable;
+			error = heuristic_solve(thread_board); // error is a private variable;
 			if(error == SOLVED) {
 				
 				#pragma omp critical
@@ -494,7 +502,7 @@ int** solveSudoku(int** originalGrid){
 				}
 				solution_found = 1; // Doesn't need to be critical. it is set to 1 afterall.
 				break;
-			}*/
+			}
 			if(branch(workpool, thread_board, 5) == -1) { // This function is thread_safe inside the 
 				error = dfs(thread_board);
 			}
