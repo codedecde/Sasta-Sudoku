@@ -651,75 +651,170 @@ int hdfs(cell_t** ptr_board) {
 }
 
 int heuristic_solve(cell_t* board) {
-	// int flag = 1;
-	int fl_elimination = 1;
-  	int fl_loneranger  = 1;
-	
+	int flag = 1;
   	int err_code = -1;
-	while(fl_elimination == 1) {
-		fl_elimination = 0; // If it doesn't change, we must move on from elimination.
-		for(idx = 1; idx<BOARD_SIZE; ++idx) {
-			if(board[idx].n_allowed == 0) {
-				if(board[idx].value != 0) {
-					err_code = NO_SOLN;
-					return err_code;
-				}
-			} else if( board[idx].n_allowed == 1) { // Only one value settable. Set it.
-				fl_elimination = 1;
-				set_board_value_idx(board, idx, board[idx].list[1], NULL, NULL);
-			} else if(board[idx].n_allowed > 1) {
-				err_code = PARTIAL_SOLN;
-			}
-		}
-	}
-  	return err_code;
-
-  	// int err_code = -1;
-  	int r,c,b,idx,i;
-  	
-  	while( fl_elimination==1 || fl_loneranger==1 ) {
-  		fl_elimination = 1;
-  		fl_loneranger  = 1;
-  		// ELIMINATION LOOP
-		err_code = SOLVED;
-  		while(fl_elimination == 1) {
-  			fl_elimination = 0; // If it doesn't change, we must move on from elimination.
-  			for(idx = 1; idx<BOARD_SIZE; ++idx) {
-  				if(board[idx].n_allowed == 0) {
-  					if(board[idx].value != 0) {
-  						err_code = NO_SOLN;
-  						return err_code;
-  					}
-  				} else if( board[idx].n_allowed == 1) { // Only one value settable. Set it.
-  					fl_elimination = 1;
-  					set_board_value_idx(board, idx, board[idx].list[1], NULL, NULL);
-  				} else if(board[idx].n_allowed > 1) {
-  					err_code = PARTIAL_SOLN;
-  				}
-  			}
-  		}
-
-  		// LONE RANGER LOOP
-  		// we'll use counts and pos to figure out stuff.
-	  	while(fl_loneranger==1) {
-	  		// For each row.
-	  		fl_loneranger = 0;
-	  		for(r=0; r<SIZE; ++r) {
-	  			for(i=(r*SIZE+1); i<BOARD_SIZE; i+=SIZE) { // behaves as the index.
-	  				// Check board[i]... populate arr_lr_counts
-	  				
+  	while(flag){
+	  	flag = 0;
+	  	err_code = SOLVED;
+	  	int r,c;
+	  	for(r=0;r<SIZE;r++){
+		  	for(c=0;c<SIZE;c++){ // c++ ! Hah! Get it? :D
+			  	int idx = r*SIZE + c + 1;
+			  	if(board[idx].n_allowed == 0){
+				  	if(board[idx].value == 0){ // value is still unfilled.
+					  	err_code = NO_SOLN;
+					  	return err_code;
+				  	}
+				  	// else{ // Don't need this block. Don't keep it.
+				  	// 	continue;
+				  	// }
+			  	}
+			  	else if(board[idx].n_allowed == 1){
+				  	flag = 1;
+				  	int val = board[idx].list[1]; // 1 indexed array
+				  	set_value(&board[idx],val);
+				  	int r_prime = r - (r % MINIGRIDSIZE);
+				  	int c_prime = c - (c % MINIGRIDSIZE);
+				  	int jdx = 0;
+				  	for(;jdx<SIZE;++jdx){
+					  	int jdx_r = r*SIZE + jdx + 1;
+					  	int jdx_c = jdx*SIZE + c + 1;
+					  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+					  	remove_allowed(&board[jdx_r],val);
+					  	remove_allowed(&board[jdx_c],val); 
+					  	remove_allowed(&board[jdx_b],val);
+				  	}
+			  	}
+			  	else if( board[idx].n_allowed > 1){ // Made it a check for sanity purposes.
+				  	err_code = PARTIAL_SOLN;
+			  	}
+		  	}
+	  	}
+  		
+  		int row_count,col_count,box_count;
+  		int row_idx,col_idx,box_idx;
+  		int val;
+  		for(val = 1;val <= SIZE;val++){
+  			
+	  		//Row iterator
+  			int ii = 0, jj = 0;
+  			for(ii = 0 ;ii < SIZE; ii++){
+  				row_count = 0;
+  				row_idx = 0;
+	  			for(jj = 0; jj < SIZE;jj++){
+	  				int r_idx = ii*SIZE  + jj + 1;
+	  				if(board[r_idx].value == val)
+	  					break;
+	  				else if( is_allowed(&board[r_idx], val) ){
+	  					row_count ++;
+	  					if(row_count == 2){
+	  						row_idx = 0;
+	  						break;
+	  					}
+	  					else{
+	  						row_idx = r_idx;
+	  					}
+	  				}
+	  			}
+	  			if(row_idx != 0){
+	  				flag = 1;
+	  				set_value(&board[row_idx],val);
+	  				int r = (row_idx - 1) / SIZE;
+	  				int c = (row_idx - 1) % SIZE;
+	  				int r_prime = r - (r % MINIGRIDSIZE);
+				  	int c_prime = c - (c % MINIGRIDSIZE);
+				  	int jdx = 0;
+				  	for(;jdx<SIZE;++jdx){
+					  	int jdx_r = r*SIZE + jdx + 1;
+					  	int jdx_c = jdx*SIZE + c + 1;
+					  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+					  	remove_allowed(&board[jdx_r],val);
+					  	remove_allowed(&board[jdx_c],val); 
+					  	remove_allowed(&board[jdx_b],val);
+				  	}
 	  			}
 	  		}
+	  		//Column Iterator
+	  		for(ii = 0; ii < SIZE ; ++ii){
+	  			col_count = 0;
+	  			col_idx = 0;
+	  			for(jj = 0; jj < SIZE;jj++){
+	  				int c_idx = jj*SIZE  + ii + 1;
+	  				if(board[c_idx].value == val)
+	  					break;
+	  				else if( is_allowed(&board[c_idx], val) ){
+	  					col_count ++;
+	  					if(col_count == 2){
+	  						col_idx = 0;
+	  						break;
+	  					}
+	  					else{
+	  						col_idx = c_idx;
+	  					}
+	  				}
+	  			}
+	  			if(col_idx != 0){
+	  				flag = 1;
+	  				set_value(&board[col_idx],val);
+	  				int r = (col_idx - 1) / SIZE;
+	  				int c = (col_idx - 1) % SIZE;
+	  				int r_prime = r - (r % MINIGRIDSIZE);
+				  	int c_prime = c - (c % MINIGRIDSIZE);
+				  	int jdx = 0;
+				  	for(;jdx<SIZE;++jdx){
+					  	int jdx_r = r*SIZE + jdx + 1;
+					  	int jdx_c = jdx*SIZE + c + 1;
+					  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+					  	remove_allowed(&board[jdx_r],val);
+					  	remove_allowed(&board[jdx_c],val); 
+					  	remove_allowed(&board[jdx_b],val);
+				  	}
+	  			}
+	  		}
+	  		//Box iterator
+	  		for(ii = 0; ii < SIZE;ii ++ ){
+	  			int r_prime = ii - (ii % MINIGRIDSIZE);
+	  			int c_prime = MINIGRIDSIZE * (ii % MINIGRIDSIZE);
+	  			int box_count = 0;
+	  			int box_idx = 0;
+	  			for(jj = 0; jj< SIZE;jj++){
+	  				int r = r_prime + (jj / MINIGRIDSIZE);
+	  				int c = c_prime + (jj % MINIGRIDSIZE);
+	  				int b_idx = (SIZE*r) + c + 1;
+	  				if(board[b_idx].value == val)
+	  					break;
+	  				if( is_allowed( &board[b_idx],val) ){
+		  				box_count ++;
+		  				if(box_count == 2){
+		  					box_idx = 0;
+		  					break;
+		  				}
+		  				else
+		  					box_idx = b_idx;
+				  	}
+	  			}
+	  			if(box_idx != 0 ){
+	  				flag = 1;
+	  				set_value(&board[box_idx],val);
+	  				int r = (box_idx - 1) / SIZE;
+	  				int c = (box_idx - 1) % SIZE;
+	  				int r_prime = r - (r % MINIGRIDSIZE);
+				  	int c_prime = c - (c % MINIGRIDSIZE);
+				  	int jdx = 0;
+				  	for(;jdx<SIZE;++jdx){
+					  	int jdx_r = r*SIZE + jdx + 1;
+					  	int jdx_c = jdx*SIZE + c + 1;
+					  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+					  	remove_allowed(&board[jdx_r],val);
+					  	remove_allowed(&board[jdx_c],val); 
+					  	remove_allowed(&board[jdx_b],val);
+				  	}
 
-	  		// For each col.
-	  		for(c=0; c<SIZE; ++c) {
+	  			}
 
 	  		}
-	  		// For each box.
-	  		for(b=0; b<SIZE; ++b) {
 
-	  		}
-	  	}
+  		}
   	}
 
 	return err_code;
