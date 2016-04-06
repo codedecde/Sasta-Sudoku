@@ -356,15 +356,31 @@ cell_t* pop_board(workpool_t* pool) {
 }
 
 cell_t* pop_mem(board_store_t* pool) {
-	if( not_empty(pool) ) {
-		return pop_board(pool);
-	} else {
-		// Make a new board...allocate it, and return it.
-		// printf("Store is empty\n");		
-		cell_t* newboard;
-		newboard = init_board(newboard);
-		return newboard;
+	cell_t* ret_val = NULL;
+	if(omp_in_parallel() != 0){
+		#pragma omp critical (store_lock)
+		{
+			if( not_empty(pool) ) {
+				pool->sz--;
+				ret_val =  pool->arr_boards[pool->sz];
+			} 
+		}
 	}
+	else{
+		if( not_empty(pool) ) {
+			pool->sz--;
+			ret_val =  pool->arr_boards[pool->sz];
+		} 
+	}
+	if(ret_val != NULL)
+		return ret_val;
+
+	// Make a new board...allocate it, and return it.
+		// printf("Store is empty\n");		
+	cell_t* newboard;
+	newboard = init_board(newboard);
+	return newboard;
+	
 }
 cell_t* push_board(workpool_t* pool, cell_t* board) {
 	// IMPORTANT: The difference between push_board and push_mem is the copy that push_board performs, but push_mem doesnt
@@ -380,10 +396,10 @@ cell_t* push_board(workpool_t* pool, cell_t* board) {
 		pool->sz_alloc = 2*pool->sz_alloc;
 		free(oldarr); // Cleaning up after yourself.
 	}
-	#pragma omp critical (store_lock)
-	{
-		retval = pop_mem(store);
-	}
+	
+	
+	retval = pop_mem(store);
+	
 	pool->arr_boards[pool->sz] = retval;
 	copy_board(retval, board); // Go in deep and copy stuff. O(n) operation man.
 	pool->sz++;
@@ -394,21 +410,38 @@ int push_mem(board_store_t* pool, cell_t* board) {
 	// Case1: Had to grow pool... return 1
 	// Case2: Didn't have to grow... return 0
 	int retval = 0;
-	if( !not_full(pool) ) { // is full :P
-		cell_t** oldarr = pool->arr_boards;
-		pool->arr_boards = malloc(2*pool->sz_alloc*sizeof(cell_t*));
-		// IMPORTANT: I don't allocate the new boards... I expect them to be malloced elsewhere.
-		// 	Rationale:
-		// 		the board must've come from somewhere.
-		// 		Initially, all boards are born from the store.
-		// 		That would mean that somebody is mallocing boards, Me allocing boards would hence be pointless.
-		memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
-		pool->sz_alloc *= 2;
-		free(oldarr);
-		retval = 1;
+	if(omp_in_parallel() != 0){
+		#pragma omp critical (store_lock)
+		{
+			if( !not_full(pool) ) { // is full :P
+				cell_t** oldarr = pool->arr_boards;
+				pool->arr_boards = malloc(2*pool->sz_alloc*sizeof(cell_t*));
+				// IMPORTANT: I don't allocate the new boards... I expect them to be malloced elsewhere.
+				// 	Rationale:
+				// 		the board must've come from somewhere.
+				// 		Initially, all boards are born from the store.
+				// 		That would mean that somebody is mallocing boards, Me allocing boards would hence be pointless.
+				memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
+				pool->sz_alloc *= 2;
+				free(oldarr);
+				retval = 1;
+			}
+			pool->arr_boards[pool->sz] = board;
+			pool->sz++;
+		}
 	}
-	pool->arr_boards[pool->sz] = board;
-	pool->sz++;
+	else{
+			if( !not_full(pool) ) { // is full :P
+				cell_t** oldarr = pool->arr_boards;
+				pool->arr_boards = malloc(2*pool->sz_alloc*sizeof(cell_t*));
+				memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
+				pool->sz_alloc *= 2;
+				free(oldarr);
+				retval = 1;
+			}
+			pool->arr_boards[pool->sz] = board;
+			pool->sz++;
+	}
 	return retval;
 }
 int dispose_board(cell_t* board, board_store_t* pool) {
@@ -416,7 +449,7 @@ int dispose_board(cell_t* board, board_store_t* pool) {
 		return destroy_board(board);
 	} else {
 		int retval;
-		#pragma omp critical (store_lock) 
+		// #pragma omp critical (store_lock) 
 		{
 			push_mem(pool, board);
 		}
@@ -519,7 +552,7 @@ int copy_mat2board(int** mat, cell_t* board) {
 	return 1; // always succeed, really.
 }
 int restore_invariants(cell_t* board) {
-	printf("#brk Please don't be the cause\n");
+	
 	int i, r,c, rp,cp;
 	int j, jr, jc, jb;
 	for(i=1; i<BOARD_SIZE; ++i) {
@@ -541,7 +574,7 @@ int restore_invariants(cell_t* board) {
 			remove_allowed(&board[jb], board[i].value);
 		}
 	}
-	printf("#brk Not the cause!\n");
+	
 	return 1;
 }
 /*
@@ -586,27 +619,28 @@ int** solveSudoku(int** originalGrid) {
 	// assert(0);
 	
 	// TESTING CODE ENDS HERE
-	
+	solved = PARTIAL_SOLN;
 	solved = heuristic_solve(orig_board);
 	if( solved != PARTIAL_SOLN ) {
 		return board2mat(orig_board);
 	}
 	
 	//TODO: Test populate_workpool
-	printf("#brk1\n");
+	
 	populate_workpool(workpool, orig_board, NCELL_POPULATE_WORKPOOL); // Branch on first ncells.
-	printf("#brk2\n");
+	
 	int thr_solved; // Private variable
 	cell_t* thr_board;
 
 	if( omp_get_num_threads() > workpool->sz ) { // We don't need as many threads.
 		omp_set_num_threads(workpool->sz); // NOTE: High hopes, brun ... maybe even low hopes.
 	}
-	printf("wrkpool->size = %d\n", workpool->sz);
+	//printf("wrkpool->size = %d\n", workpool->sz);
 	solved_board = NULL;
 	#pragma omp parallel shared(solved, solved_board) private(thr_solved, thr_board)
 	{
 		// TODO: the entire thread algorithm
+		int error_code = PARTIAL_SOLN;
 		while(not_empty(workpool)) { // The number of threads is dynamic, I'd rather avoid that for now.
 
 			#pragma omp critical (thr_board_fetch_lock)
@@ -620,9 +654,9 @@ int** solveSudoku(int** originalGrid) {
 				break;
 			}
 			
-			printf("#brk3 tid:%d\n", omp_get_thread_num());
-			int error_code = hdfs(&thr_board);
-			printf("#brk4 tid:%d\n", omp_get_thread_num());
+			//printf("#brk3 tid:%d\n", omp_get_thread_num());
+			error_code = hdfs(&thr_board);
+			//printf("#brk4 tid:%d\n", omp_get_thread_num());
 
 			if(error_code == SOLVED){
 				#pragma omp critical
@@ -634,7 +668,11 @@ int** solveSudoku(int** originalGrid) {
 				solved = SOLVED;
 				break;
 			}
+			if(thr_board != NULL)
+				push_mem(store,thr_board);
 		}
+		if ((thr_board != NULL) && (error_code != SOLVED))
+			push_mem(store,thr_board);
 	}
 	destory_workpool(workpool);
 	destory_store(store); // TODO: Check if positioning is appropriate.
@@ -665,7 +703,7 @@ int hdfs(cell_t** ptr_board) {
 	cell_t* oldboard;
 	// Critical section.
 	
-	#pragma omp critical (store_lock)
+	//#pragma omp critical (store_lock)
 	{
 		oldboard = pop_mem(store); // Global variable?
 	}
@@ -674,10 +712,11 @@ int hdfs(cell_t** ptr_board) {
 	int solv_state = -1;
 	solv_state = heuristic_solve(*ptr_board);
 	
+	
 	if(solv_state == SOLVED) {
 		// Get rid of oldboard
 		// printf("This happened\n");
-		#pragma omp critical (store_lock)
+		//#pragma omp critical (store_lock)
 		{
 			push_mem(store, oldboard);	
 		}
@@ -686,7 +725,7 @@ int hdfs(cell_t** ptr_board) {
 
 		// Restore oldboard and return.
 		// printf("That happened\n");
-		#pragma omp critical (store_lock)
+		//#pragma omp critical (store_lock)
 		{
 			push_mem(store, *ptr_board);
 		}
@@ -696,7 +735,9 @@ int hdfs(cell_t** ptr_board) {
 	// PARTIAL_SOLN
 	int bon, nal, lst_iter;
 	bon = get_branchon(*ptr_board);
+
 	nal = ((*ptr_board)[bon]).n_allowed;
+	
 	// ASSERT: bon can be branched on.
 	int *alters, nalters; //nalters is an int.
 	alters = malloc(BOARD_SIZE*sizeof(int));
@@ -707,8 +748,10 @@ int hdfs(cell_t** ptr_board) {
 		set_board_value_idx(*ptr_board, bon, val , alters, &nalters);
 		
 		// Before you recurse, check if somebody else has solved it.
+		
 		if (solved == SOLVED) { // 'Tis a global value.
-			#pragma omp critical (store_lock)
+			//#pragma omp critical (store_lock)
+			
 			{
 				push_mem(store, *ptr_board);
 			}
@@ -727,7 +770,7 @@ int hdfs(cell_t** ptr_board) {
 			return SOLVED;
 		} else if(solv_state == TIME_TO_LEAVE) {
 			// Free memory and leave.
-			#pragma omp critical 
+			//#pragma omp critical 
 			{
 				push_mem(store, *ptr_board);	
 			}
@@ -739,7 +782,7 @@ int hdfs(cell_t** ptr_board) {
 		undo_alterations(*ptr_board, val, alters, &nalters);
 	}
 	free(alters);
-	#pragma omp critical
+	//#pragma omp critical
 	{
 		push_mem(store, *ptr_board);	
 	}
