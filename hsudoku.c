@@ -6,16 +6,27 @@
 #include <omp.h>	// OpenMP
 #include "sudoku.h"
 
+int mypow(int base, int power) { // Because C confused me .
+	int i;
+	int acc;
+	acc = 1;
+	for(i=0; i<power; ++i) {
+		acc = acc*base;
+	}
+	return acc;
+} 
+
+
 #define BOARD_SIZE (SIZE*SIZE + 1)
 
 #define NO_SOLN 2
 #define PARTIAL_SOLN 1
 #define SOLVED 0
 
-#define INITIAL_WORKPOOL_SZ 30
+#define INITIAL_WORKPOOL_SZ 6
 #define MAX_WORKPOOL_SZ 40
-#define INITIAL_STORE_SZ 100
-
+#define INITIAL_STORE_SZ 100*BOARD_SIZE
+#define NCELL_POPULATE_WORKPOOL 2
 struct cell_t {
 	int row;
 	int col;
@@ -29,7 +40,7 @@ typedef struct cell_t cell_t;
 	int add_allowed(cell_t*, int); // returns -1 on behaviour dependent on this having a non-zero value
 	int remove_allowed(cell_t* this, int val); // returns -1 on behaviour dependent on this having a non-zero value
 	int set_value(cell_t*, int);
-// cell_t functions.
+	// cell_t functions.
 	void cell_init(cell_t* t) { // TODO: Remove this once safe.
 		printf("cell_init is no longer a valid function\n"); 
 		assert(0);
@@ -115,13 +126,14 @@ typedef struct cell_t cell_t;
 
 	int set_all_allowed(cell_t* this) {
 		// Set all possible values to "allowed"...
-		if(this->value ==0) {
+		if(this->value == 0) {
 			int val;
 			for(val=1; val<=SIZE; ++val) {
 				this->base_array[val] = val;
 				this->list[val] = val;
 			}
 			this->n_allowed = SIZE;
+			return 0;
 		} else {
 			return -1; // Doesn't make sense to set everything to allowed.
 		}
@@ -155,14 +167,15 @@ typedef struct cell_t cell_t;
 		rp = r - (r%MINIGRIDSIZE);
 		cp = c - (c%MINIGRIDSIZE);
 		idx = r*SIZE + c + 1;
-		memset(altered_indices, 0, BOARD_SIZE*sizeof(int));
+		
 		if( altered_indices!=NULL && ptr_naltered!=NULL ) {
+			memset(altered_indices, 0, BOARD_SIZE*sizeof(int));
 			*ptr_naltered = -1;
 			set_value(&board[idx], val);
 			for(i=0; i<SIZE; ++i) {
-				ir = rp*SIZE + i + 1;
-				ic = i*SIZE  + cp + 1;
-				ib = (rp - (i/MINIGRIDSIZE))*SIZE + (cp - (i%MINIGRIDSIZE)) + 1;
+				ir = r*SIZE + i + 1;
+				ic = i*SIZE  + c + 1;
+				ib = (rp + (i/MINIGRIDSIZE))*SIZE + (cp + (i%MINIGRIDSIZE)) + 1;
 				if( ir!=idx && remove_allowed(&board[ir], val)==1 ) {
 					(*ptr_naltered)++;
 					altered_indices[*ptr_naltered] = ir;
@@ -178,10 +191,11 @@ typedef struct cell_t cell_t;
 			}
 		} else { // ASSERT: altered_indices and ptr_naltered are NULL.
 			set_value(&board[idx], val);
+			
 			for(i=0; i<SIZE; ++i) {
-				ir = rp*SIZE + i + 1;
-				ic = i*SIZE  + cp + 1;
-				ib = (rp - (i/MINIGRIDSIZE))*SIZE + (cp - (i%MINIGRIDSIZE)) + 1;
+				ir = r*SIZE + i + 1;
+				ic = i*SIZE  + c + 1;
+				ib = (rp + (i/MINIGRIDSIZE))*SIZE + (cp + (i%MINIGRIDSIZE)) + 1;
 				remove_allowed(&board[ir], val);
 				remove_allowed(&board[ic], val);
 				remove_allowed(&board[ib], val);
@@ -190,7 +204,18 @@ typedef struct cell_t cell_t;
 		return 1; // This function won't really fail, so its ok.
 	}
 	int set_board_value_idx(cell_t* board, int idx, int val, int* altered_indices, int* ptr_naltered) {
+		assert(idx>=1);
 		return set_board_value_rc(board, ((idx-1)/SIZE), ((idx-1)%SIZE), val, altered_indices, ptr_naltered);
+	}
+	int undo_alterations(cell_t* board, int val, int* altered_indices, int* ptr_naltered) {
+		// ASSERT: altered_indices is a stack of things
+		// *ptr_naltered is the list of values that has been changed. Their val was removed from allowed-ness.
+		
+		while(*ptr_naltered>=0) {
+			add_allowed(&board[ altered_indices[*ptr_naltered] ], val);
+			(*ptr_naltered)--;
+		}
+		free(altered_indices);
 	}
 	cell_t* init_board(cell_t* board) {
 		// initialize the board... allocate it, and its list and base_array
@@ -236,6 +261,7 @@ typedef struct cell_t cell_t;
 			memcpy(dst[i].list, src[i].list, (SIZE+1)*sizeof(int));
 			memcpy(dst[i].base_array, src[i].base_array, (SIZE+1)*sizeof(int));
 		}
+		return 0;
 	}
 	/*
 		For outputting purposes.
@@ -268,6 +294,13 @@ typedef pool_t board_store_t;
 workpool_t* workpool; // Global
 board_store_t* store; // Global
 
+// Global variables used for lone ranger.
+int arr_lr_counts[SIZE]; // These will be made thread private.
+int arr_lr_pos[SIZE];
+// int alters[BOARD_SIZE];
+// int nalters;
+
+
 void destory_pool(workpool_t* pool) {
 	int i;
 	for(i=0; i<pool->sz; ++i) {
@@ -294,6 +327,7 @@ board_store_t* init_store(board_store_t* pool, int initsz) {
 	for(i=0; i<initsz; ++i) {
 		pool->arr_boards[i] = init_board(pool->arr_boards[i]); // NOTE: I'm not very sure about C syntax here.
 	}
+	pool->sz = initsz;
 	return pool;
 }
 
@@ -303,6 +337,10 @@ void destory_store(board_store_t* pool) {
 
 int not_full(pool_t* pool) { // Applies to both, board_store_t and workpool_t
 	return ((pool->sz < pool->sz_alloc)?1:0);
+}
+
+int not_empty(pool_t* pool) {
+	return (pool->sz > 0? 1:0);
 }
 
 cell_t* pop_board(workpool_t* pool) {
@@ -315,11 +353,11 @@ cell_t* pop_board(workpool_t* pool) {
 }
 
 cell_t* pop_mem(board_store_t* pool) {
-	if( not_full(pool) ) {
-		printf("Store is empty\n");
+	if( not_empty(pool) ) {
 		return pop_board(pool);
 	} else {
 		// Make a new board...allocate it, and return it.
+		printf("Store is empty\n");		
 		cell_t* newboard;
 		newboard = init_board(newboard);
 		return newboard;
@@ -383,9 +421,77 @@ int dispose_board(cell_t* board, board_store_t* pool) {
 int copy_mat2board(int** mat, cell_t* board); // ASSERT: board and mat have been initialized.
 int restore_invariants(cell_t* board);	// Invokes the wrath of god by calling meteor showers on all involved parties. Obviously.
 
-int dfs(cell_t* board); // Take board ka dfs solution to completion
+int get_branchon(cell_t* board); // Behaviour not specificed... returns index of cell to branch on.
+int populate_workpool(workpool_t* pool, cell_t* board, int nsize);
+int hdfs(cell_t** ptr_board); // As discussed on 6th april.
+int dfs_recursive(cell_t* board); // Take board ka dfs solution to completion
+int dfs_iterative(cell_t* board);
 int heuristic_solve(cell_t* board); // Take board and solve it heuristically as much as possible.
 int branch(cell_t* board, workpool_t* pool, int max_branches); // Find the children of board. Push STRICTLY LESS(EQ) than max_branches
+
+int get_branchon(cell_t* board) {
+	int i;
+	for(i=1; i<BOARD_SIZE; ++i) {
+		// if board[i] is fillable.
+		if( board[i].n_allowed > 0 ) {
+			if( board[i].value == 0) {
+				return i;
+			} else {
+				printf("Invalid board... in get_branchon\n");
+				assert(0);
+			}
+		}
+	}
+	return -1;
+}
+
+int populate_workpool(workpool_t* pool, cell_t* board, int ncells) {
+	assert(pool->sz == 0); // ASSUMES that board is empty.
+	push_board(pool, board);
+	int iter; // Run 0...(ncells-1) iterations.
+
+	int stacktop =-1;
+	cell_t** boardstack;
+	boardstack = malloc( mypow(SIZE, ncells)*sizeof(cell_t*) );
+	cell_t* topush, *tobranch, *newbranch;
+	int bon;
+	int val_iter,nal;
+	for(iter=0; iter<ncells; ++iter) {
+		while( pool->sz > 0) {
+			topush = pop_board(pool); // No copying happens here, everything is cool.
+			
+			stacktop++;	boardstack[stacktop] = topush; // This is a push.
+		}
+
+		// ASSERT: pool is empty right now.
+		while( stacktop > -1) { // taking stuff from stack, branching on each and pushing onto workpool.
+			tobranch = boardstack[stacktop]; stacktop--; // This is a pop.
+			bon = get_branchon(tobranch);
+			if(bon == -1) {
+				// We cn't branch no more...
+				// Just put the stack back into the pool.
+				push_board(pool, tobranch); // This is slow, TODO: think about replacing it by push_mem.
+				push_mem(pool, tobranch);	// IMPORTANT: This must accompany the push_board;
+
+				while(stacktop > -1) { // Push all the others too.
+					tobranch = boardstack[stacktop]; stacktop--;
+					push_board(pool, tobranch);	
+					push_mem(pool, tobranch); // IMPORTANT: This must accompany push_board.
+				}
+				return -1; // A problem arose.
+			}
+			// Do da branch.
+			nal = tobranch[bon].n_allowed;
+			for(val_iter =1 ; val_iter<=nal; ++val_iter) {
+				// Alter tobranch[bon]
+				newbranch = push_board(pool, tobranch);		//Does a copy and whatnot.
+				set_board_value_idx(newbranch, bon, newbranch[bon].list[val_iter], NULL, NULL);
+			}
+			push_mem(store, tobranch); // Free da branch.
+		}
+	}
+	return pool->sz;
+}
 
 int copy_mat2board(int** mat, cell_t* board) {
 	// ASSERT: board has already been allocated.
@@ -409,13 +515,13 @@ int restore_invariants(cell_t* board) {
 
 	for(i=1; i<BOARD_SIZE; ++i) {
 		if(board[i].value == 0) continue; // This imposes no constraints on anybody.
-		r = i/SIZE;
-		c = i%SIZE;
+		r = (i-1)/SIZE;
+		c = (i-1)%SIZE;
 		rp = r - (r%MINIGRIDSIZE);
 		cp = c - (c%MINIGRIDSIZE);
 		for(j=0; j<SIZE;++j) {
 			jr = r*SIZE + j + 1;
-			jc = j*SIZE + r + 1;
+			jc = j*SIZE + c + 1;
 			jb = (rp + (j/MINIGRIDSIZE))*SIZE + (cp +(j%MINIGRIDSIZE) ) + 1;
 			remove_allowed(&board[jr], board[i].value);
 			remove_allowed(&board[jc], board[i].value);
@@ -447,6 +553,10 @@ int** solveSudoku(int** originalGrid) {
 	//  						If NO_SOLN: free(onto store) and repeat process
 	//  					If succeed, then free(onto store) and repeat process.
 	
+	workpool = init_workpool(workpool, INITIAL_WORKPOOL_SZ); // NOTE: These two #define macros need to be set.
+	store 	 = init_store(store, INITIAL_STORE_SZ);
+	
+	// Done only on a board that has had heuristic_solve run on it.
 	cell_t* solved_board;		// global/shared solution.
 	int solved;				// global/shared boolean
 
@@ -454,34 +564,165 @@ int** solveSudoku(int** originalGrid) {
 	orig_board = init_board(orig_board); // NOTE: Is this correct C Syntax?
 	copy_mat2board(originalGrid, orig_board); // Simply copies values etc.
 	restore_invariants(orig_board);
-
 	// TESTING CODE IN HERE
-	
+	solved = hdfs(&orig_board); // Solves it.
+	if( solved != PARTIAL_SOLN ) {
+		return board2mat(orig_board);
+	}
+	printf("Holy fuck no\n");
+	assert(0);
 	// TESTING CODE ENDS HERE
 	
 	solved = heuristic_solve(orig_board);
 	if( solved != PARTIAL_SOLN ) {
 		return board2mat(orig_board);
 	}
-
-	workpool = init_workpool(workpool, INITIAL_WORKPOOL_SZ); // NOTE: These two #define macros need to be set.
-	store 	 = init_store(store, INITIAL_STORE_SZ);
-
+	populate_workpool(workpool, orig_board, NCELL_POPULATE_WORKPOOL); // Branch on first ncells.
+	
 	int thr_solved; // Private variable
 	cell_t* thr_board;
-	#pragma omp parallel shared(solved, solved_board) private(thr_solved, thr_board)
+	#pragma omp parallel shared(solved, solved_board) private(thr_solved, thr_board, arr_lr_pos, arr_lr_counts)
 	{
 		// TODO: the entire thread algorithm
 	}
 	return board2mat(solved_board);
 }
 
-int dfs(cell_t* board) {
-	// TODO: Write dfs.
+// TODO: Test this.
+// save oldstate (use store)
+// run heuristic on board
+// find index/cell to branch on - called bon
+// 		for each value that bon can take:
+// 			setval(bon,value)
+// 			hdfs(board)
+// 			if solved - woohoo.
+// 				free oldstate ( use store )
+// 				return board
+// 			restore board to oldstate ( use deepcopy without malloc... copy_board )
+// 		Get here means that no value could solve the board.
+// 		restore oldstate...
+// 			do free_mem( board) ... use store
+// 			board = oldstate.
+int hdfs(cell_t** ptr_board) {
+	cell_t* oldboard;
+	oldboard = pop_mem(store); // Global variable?
+	
+	copy_board(oldboard, *ptr_board); // returns 0... pretty much always
+	int solv_state = -1;
+	solv_state = heuristic_solve(*ptr_board);
+	
+	if(solv_state == SOLVED) {
+		// Get rid of oldboard
+		printf("This happened\n");
+		push_mem(store, oldboard);
+		return SOLVED;
+	} else if(solv_state == NO_SOLN) {
+
+		// Restore oldboard and return.
+		printf("That happened\n");
+		push_mem(store, *ptr_board);
+		*ptr_board = oldboard;
+		return NO_SOLN;
+	}
+	// PARTIAL_SOLN
+	int bon, nal, lst_iter;
+	bon = get_branchon(*ptr_board);
+	nal = ((*ptr_board)[bon]).n_allowed;
+	// ASSERT: bon can be branched on.
+	for(lst_iter=1; lst_iter<=nal; ++lst_iter) {
+		int *alters, nalters; //nalters is an int.
+		alters = malloc(BOARD_SIZE*sizeof(int));
+		nalters = -1; // These are used recursively. Hence, they can't be declared globally.
+		
+		int val = (*ptr_board)[bon].list[lst_iter];
+		set_board_value_idx(*ptr_board, bon, val , alters, &nalters);
+		solv_state = hdfs(ptr_board);
+		if(solv_state == SOLVED) {
+			push_mem(store, oldboard);
+			return SOLVED;
+		}
+		// copy_board(*ptr_board, oldboard); ITS WRONG ... hdfs restores to the board it found.
+		undo_alterations(*ptr_board, val, alters, &nalters);
+	}
+
+	push_mem(store, *ptr_board);
+	*ptr_board = oldboard;
+	return NO_SOLN;
 }
 
 int heuristic_solve(cell_t* board) {
-	// TODO
+	// int flag = 1;
+	int fl_elimination = 1;
+  	int fl_loneranger  = 1;
+	
+  	int err_code = -1;
+	while(fl_elimination == 1) {
+		fl_elimination = 0; // If it doesn't change, we must move on from elimination.
+		for(idx = 1; idx<BOARD_SIZE; ++idx) {
+			if(board[idx].n_allowed == 0) {
+				if(board[idx].value != 0) {
+					err_code = NO_SOLN;
+					return err_code;
+				}
+			} else if( board[idx].n_allowed == 1) { // Only one value settable. Set it.
+				fl_elimination = 1;
+				set_board_value_idx(board, idx, board[idx].list[1], NULL, NULL);
+			} else if(board[idx].n_allowed > 1) {
+				err_code = PARTIAL_SOLN;
+			}
+		}
+	}
+  	return err_code;
+
+  	// int err_code = -1;
+  	int r,c,b,idx,i;
+  	
+  	while( fl_elimination==1 || fl_loneranger==1 ) {
+  		fl_elimination = 1;
+  		fl_loneranger  = 1;
+  		// ELIMINATION LOOP
+		err_code = SOLVED;
+  		while(fl_elimination == 1) {
+  			fl_elimination = 0; // If it doesn't change, we must move on from elimination.
+  			for(idx = 1; idx<BOARD_SIZE; ++idx) {
+  				if(board[idx].n_allowed == 0) {
+  					if(board[idx].value != 0) {
+  						err_code = NO_SOLN;
+  						return err_code;
+  					}
+  				} else if( board[idx].n_allowed == 1) { // Only one value settable. Set it.
+  					fl_elimination = 1;
+  					set_board_value_idx(board, idx, board[idx].list[1], NULL, NULL);
+  				} else if(board[idx].n_allowed > 1) {
+  					err_code = PARTIAL_SOLN;
+  				}
+  			}
+  		}
+
+  		// LONE RANGER LOOP
+  		// we'll use counts and pos to figure out stuff.
+	  	while(fl_loneranger==1) {
+	  		// For each row.
+	  		fl_loneranger = 0;
+	  		for(r=0; r<SIZE; ++r) {
+	  			for(i=(r*SIZE+1); i<BOARD_SIZE; i+=SIZE) { // behaves as the index.
+	  				// Check board[i]... populate arr_lr_counts
+	  				
+	  			}
+	  		}
+
+	  		// For each col.
+	  		for(c=0; c<SIZE; ++c) {
+
+	  		}
+	  		// For each box.
+	  		for(b=0; b<SIZE; ++b) {
+
+	  		}
+	  	}
+  	}
+
+	return err_code;
 }
 
 int branch(cell_t* board, workpool_t* pool, int maxpushes) {
@@ -506,7 +747,7 @@ int branch(cell_t* board, workpool_t* pool, int maxpushes) {
 		if(nal==0) continue; // Don't push these.
 		else {
 			arr_bhsz[nal]++;
-			arr_bhelp[nal][arr_bhsz[nal]] = idx;
+			arr_bhelp[nal][arr_bhsz[nal]] = idx_h;
 		}
 	} // ASSERT: Done initializing.
 
@@ -533,8 +774,192 @@ int branch(cell_t* board, workpool_t* pool, int maxpushes) {
 			}
 			arr_bhsz[idx]--; // Reduce stack pointer.
 			// ASSERT: pushed all children at branch_on	.
-			if( mypushes>=maxpushes || pool->sz >= MAX_WORKPOOL_SZ ) { break; }
+			if( mypushes>=maxpushes ) { break; }
+			if( pool->sz >= MAX_WORKPOOL_SZ ) { return -1; }
 		}
 		if( mypushes>=maxpushes || pool->sz >= MAX_WORKPOOL_SZ ) { break; } // Inner break only breaks out of while loop.
 	}
+	free(arr_bhsz);
+	free(arr_bhelp);
+	return 0;
 }
+
+// UNUSED CODE.
+int dfs_recursive(cell_t* board){
+	/*
+	Currently iterate through the entire board
+	Can we do better ?? ... TODO : yes... look at brute_force.c
+	*/
+	// ASSERT : input, i.e., board is valid.
+	int min_val = SIZE+1; // Good enough.
+	int min_idx = 0;
+	int i = 1;
+	for(;i<BOARD_SIZE;i++){
+		if(board[i].n_allowed != 0){
+			if(min_val > board[i].n_allowed){
+				min_val = board[i].n_allowed;
+				min_idx = i;
+			}
+		}
+		else if(board[i].n_allowed == 0){
+			if(board[i].value == 0){
+				return NO_SOLN;
+			}
+		}
+	}
+	// printf("#dfs: %d\n", min_idx);
+	if(min_idx == 0){
+		return SOLVED;
+	}
+	
+	int num_allowed = board[min_idx].n_allowed;
+	int r = (min_idx - 1) / SIZE;
+	int c = (min_idx - 1) % SIZE;
+	int r_prime = r - (r % MINIGRIDSIZE);
+	int c_prime = c - (c % MINIGRIDSIZE);
+	int base_array[SIZE+1];
+	
+	// print_cell(&board[min_idx]);
+	memcpy((void*)base_array,(void*)board[min_idx].base_array,(SIZE+1)*sizeof(int));
+	
+	// printf("n_allowed=%d\n", num_allowed);
+	// for(i=0; i<(SIZE+1); i++) {
+	// 	printf("%d ", base_array[i]);
+	// }
+	// printf("\n");
+	// base_array[0] = 0;
+
+	int lst_indices[BOARD_SIZE];
+	memset(lst_indices,0, BOARD_SIZE*sizeof(int));
+	int lst_idx = -1; // It is set withing the loop too...
+	// lst_idx = 0; ... initialized inside forloop.
+	for(i = 1; i <= num_allowed;i++){
+		int val = board[min_idx].list[i];
+		int jdx;
+		
+		// ASSERTION CODE FOLLOWS
+				int fl_valid_set_value = 1;
+				for(jdx = 0; jdx<SIZE;++jdx) {
+					int jdx_r = r*SIZE + jdx + 1;
+				  	int jdx_c = jdx*SIZE + c + 1;
+				  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+				  	
+				  	if( (board[jdx_r].value == val && (jdx_r != min_idx)/*!= 0 && is_allowed(&board[min_idx], board[jdx_r].value)*/) ||
+				  		(board[jdx_c].value == val && (jdx_c != min_idx)/*!= 0 && is_allowed(&board[min_idx], board[jdx_c].value)*/) ||
+				  		(board[jdx_b].value == val && (jdx_b != min_idx)/*!= 0 && is_allowed(&board[min_idx], board[jdx_b].value)*/) ) {
+				  		
+				  		fl_valid_set_value = 0; break;
+				  	}
+				}
+				if( fl_valid_set_value!=1 ) {
+					printf("\tASSERTION FAIL :<\n");
+					print_board(board);
+					printf("min_idx=%d ; val=%d\n", min_idx, val);
+					print_cell(&board[min_idx]);
+					int extremely_temp_iter;
+					printf("base_array original:\n");
+					for(extremely_temp_iter = 0; extremely_temp_iter<(SIZE+1); extremely_temp_iter++) 
+						printf("%d ", base_array[i]);
+					printf("\n");
+					assert(fl_valid_set_value == 1);
+				}
+		
+		set_value(&board[min_idx],val);
+		jdx = 0;
+		lst_idx = -1;
+		for(;jdx < SIZE;jdx++){
+			int jdx_r = r*SIZE + jdx + 1;
+		  	int jdx_c = jdx*SIZE + c + 1;
+		  	int jdx_b = ((r_prime + (jdx / MINIGRIDSIZE))*SIZE) + (c_prime + (jdx%MINIGRIDSIZE) ) + 1;
+		  	if( is_allowed(&board[jdx_r],val) ) {
+		  		assert(jdx_r != min_idx); // won't get here becase if condition stops it. set_value works.
+		  		lst_idx++;
+		  		lst_indices[lst_idx] = jdx_r;
+		  		remove_allowed(&board[jdx_r],val);
+		  	}
+		  	if( is_allowed(&board[jdx_c],val) ) {
+		  		assert(jdx_c != min_idx); 
+		  		lst_idx++;
+		  		lst_indices[lst_idx] = jdx_c;
+		  		remove_allowed(&board[jdx_c],val);
+		  	}
+		  	if( is_allowed(&board[jdx_b],val) ) {
+		  		assert(jdx_b != min_idx); 
+		  		lst_idx++;
+		  		lst_indices[lst_idx] = jdx_b;
+		  		remove_allowed(&board[jdx_b],val);
+		  	}
+		}
+		int error_code = dfs_recursive(board);
+		if(error_code == SOLVED){
+			return SOLVED;
+		}
+		for(; lst_idx>-1; lst_idx--) {
+			add_allowed(&board[ lst_indices[lst_idx] ], val);
+		}
+	}
+	board[min_idx].value = 0;
+	board[min_idx].n_allowed = num_allowed;
+	
+	memcpy(board[min_idx].base_array,base_array,(SIZE+1)*sizeof(int));
+	// free(base_array); ... doesn't need to be freed. Its a stack object.
+	return NO_SOLN;
+}
+
+
+/*
+int dfs_iterative(cell_t* board) {
+	// TODO: Write iterative dfs.
+	// INIT:
+	// 		list of indices that need to be filled.
+	//		depth which points to the index in <unfilled> that was filled.
+	// 		list of value_iter
+	// 		List of indices affected by 
+	printf("def_iterative hasn't been implemented\n");
+	assert(0);
+	int* unfilled, value_iter;
+	int max_depth;
+	int** alterations; int* naltered;
+	int depth, iter_depth; // Points directly at the top of the stack.
+	int idx; 	// loop iterator.
+	unfilled 	= malloc(BOARD_SIZE*sizeof(int)); // parameterized by iter_depth
+	value_iter 	= malloc(BOARD_SIZE*sizeof(int)); // parameterized by iter_depth... remember that list is 1 indexed
+	alterations = malloc(BOARD_SIZE*sizeof(int*));
+	naltered 	= malloc(BOARD_SIZE*sizeof(int));
+	depth = -1;
+	max_depth = 0;
+	// IMPORTANT: depth < max_depth 
+	// STEP1: initialize unfilled.
+	for(idx=1; idx<BOARD_SIZE; ++idx) {
+		if( board[idx].n_allowed>0 ) {
+			max_depth++;
+			depth++;
+			unfilled[depth] = idx;
+		}
+	}
+	for(idx=0; idx<max_depth; ++idx) {
+		naltered[idx] = -1;
+		alterations[idx] = malloc(BOARD_SIZE*sizeof(int));
+	}
+
+	// ASSERT: INIT complete.
+	// iterate through unfilled.
+	iter_depth = 0;
+	// 
+	int branch_on =-1;
+	for( ;iter_depth<=max_depth; ) {
+		branch_on = unfilled[iter_depth];
+		if( value_iter[iter_depth] == 0 ) {
+			// Time to branch on this.
+			
+		} else if( value_iter[iter_depth] <= board[branch_on].n_allowed ) {
+			// Time to move to next branch.
+			// The present value didn't work, time to try the next value.
+		} else {
+			// Time to backtrack...
+			// No value worked here.
+		}
+		iter_depth++;
+	}
+}
+*/
