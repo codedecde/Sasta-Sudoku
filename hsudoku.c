@@ -22,11 +22,13 @@ int mypow(int base, int power) { // Because C confused me .
 #define NO_SOLN 2
 #define PARTIAL_SOLN 1
 #define SOLVED 0
+#define TIME_TO_LEAVE 42
 
 #define INITIAL_WORKPOOL_SZ 6
 #define MAX_WORKPOOL_SZ 40
 #define INITIAL_STORE_SZ 100*BOARD_SIZE
 #define NCELL_POPULATE_WORKPOOL 2
+
 struct cell_t {
 	int row;
 	int col;
@@ -215,7 +217,7 @@ typedef struct cell_t cell_t;
 			add_allowed(&board[ altered_indices[*ptr_naltered] ], val);
 			(*ptr_naltered)--;
 		}
-		free(altered_indices);
+		// free(altered_indices);
 	}
 	cell_t* init_board(cell_t* board) {
 		// initialize the board... allocate it, and its list and base_array
@@ -242,7 +244,7 @@ typedef struct cell_t cell_t;
 		for(i=1; i<BOARD_SIZE; ++i) {
 			free(board[i].list);
 			free(board[i].base_array);
-			free(&board[i]);
+			// free(&board[i]);
 		}
 		free(board);
 		return 1;
@@ -271,7 +273,7 @@ typedef struct cell_t cell_t;
 		int i,j;
 		for(i = 0; i<SIZE; ++i) {
 			mat[i] = malloc(SIZE*sizeof(int));
-			for(j=0; j<SIZE; j++) {
+			for(j = 0; j<SIZE; j++) {
 				mat[i][j] = board[i*SIZE + j + 1].value;
 			}
 		}
@@ -293,12 +295,8 @@ typedef pool_t workpool_t;
 typedef pool_t board_store_t;
 workpool_t* workpool; // Global
 board_store_t* store; // Global
-
-// Global variables used for lone ranger.
-int arr_lr_counts[SIZE]; // These will be made thread private.
-int arr_lr_pos[SIZE];
-// int alters[BOARD_SIZE];
-// int nalters;
+cell_t* solved_board;		// global/shared solution.
+int solved;				// global/shared boolean
 
 
 void destory_pool(workpool_t* pool) {
@@ -306,6 +304,7 @@ void destory_pool(workpool_t* pool) {
 	for(i=0; i<pool->sz; ++i) {
 		destroy_board(pool->arr_boards[i]);
 	}
+	free(pool->arr_boards);
 	free(pool);
 }
 
@@ -372,9 +371,9 @@ cell_t* push_board(workpool_t* pool, cell_t* board) {
 	if(pool->sz >= pool->sz_alloc) { // CASE 1 ... time to grow.
 		cell_t** oldarr = pool->arr_boards;
 		pool->arr_boards = malloc(2*pool->sz_alloc*sizeof(cell_t*));
-		pool->sz_alloc = 2*pool->sz_alloc;
 		// IMPORTANT: I don't do a memset here because I make no guarantees on pool->arr_boards[pool->sz...] anyway
 		memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
+		pool->sz_alloc = 2*pool->sz_alloc;
 		free(oldarr); // Cleaning up after yourself.
 	}
 	retval = pop_mem(store);
@@ -397,6 +396,7 @@ int push_mem(board_store_t* pool, cell_t* board) {
 		// 		Initially, all boards are born from the store.
 		// 		That would mean that somebody is mallocing boards, Me allocing boards would hence be pointless.
 		memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
+		pool->sz_alloc = 2*pool->sz_alloc;
 		free(oldarr);
 		retval = 1;
 	}
@@ -471,13 +471,14 @@ int populate_workpool(workpool_t* pool, cell_t* board, int ncells) {
 				// We cn't branch no more...
 				// Just put the stack back into the pool.
 				push_board(pool, tobranch); // This is slow, TODO: think about replacing it by push_mem.
-				push_mem(pool, tobranch);	// IMPORTANT: This must accompany the push_board;
+				push_mem(store, tobranch);	// IMPORTANT: This must accompany the push_board;
 
 				while(stacktop > -1) { // Push all the others too.
 					tobranch = boardstack[stacktop]; stacktop--;
 					push_board(pool, tobranch);	
-					push_mem(pool, tobranch); // IMPORTANT: This must accompany push_board.
+					push_mem(store, tobranch); // IMPORTANT: This must accompany push_board.
 				}
+				free(boardstack);
 				return -1; // A problem arose.
 			}
 			// Do da branch.
@@ -490,6 +491,7 @@ int populate_workpool(workpool_t* pool, cell_t* board, int ncells) {
 			push_mem(store, tobranch); // Free da branch.
 		}
 	}
+	free(boardstack);
 	return pool->sz;
 }
 
@@ -557,35 +559,75 @@ int** solveSudoku(int** originalGrid) {
 	store 	 = init_store(store, INITIAL_STORE_SZ);
 	
 	// Done only on a board that has had heuristic_solve run on it.
-	cell_t* solved_board;		// global/shared solution.
-	int solved;				// global/shared boolean
-
+	
 	cell_t* orig_board;
 	orig_board = init_board(orig_board); // NOTE: Is this correct C Syntax?
 	copy_mat2board(originalGrid, orig_board); // Simply copies values etc.
 	restore_invariants(orig_board);
 	// TESTING CODE IN HERE
-	solved = hdfs(&orig_board); // Solves it.
-	if( solved != PARTIAL_SOLN ) {
-		return board2mat(orig_board);
-	}
-	printf("Holy fuck no\n");
-	assert(0);
+	
+	// solved = hdfs(&orig_board); // Solves it.
+	// if( solved != PARTIAL_SOLN ) {
+	// 	return board2mat(orig_board);
+	// }
+	// printf("Holy fuck no\n");
+	// assert(0);
+	
 	// TESTING CODE ENDS HERE
 	
-	solved = heuristic_solve(orig_board);
-	if( solved != PARTIAL_SOLN ) {
-		return board2mat(orig_board);
-	}
+	// TODO: Do we want to run heuristic before branches?
+	// solved = heuristic_solve(orig_board);
+	// if( solved != PARTIAL_SOLN ) {
+	// 	return board2mat(orig_board);
+	// }
+	
+	//TODO: Test populate_workpool
 	populate_workpool(workpool, orig_board, NCELL_POPULATE_WORKPOOL); // Branch on first ncells.
 	
+	push_mem(store, orig_board);
+
 	int thr_solved; // Private variable
 	cell_t* thr_board;
-	#pragma omp parallel shared(solved, solved_board) private(thr_solved, thr_board, arr_lr_pos, arr_lr_counts)
+	if( omp_get_num_threads() > workpool->sz ) { // We don't need as many threads.
+		omp_set_num_threads(workpool->sz); // NOTE: High hopes, brun ... maybe even low hopes.
+	}
+	
+	solved_board = NULL;
+	#pragma omp parallel shared(solved, solved_board) private(thr_solved, thr_board)
 	{
 		// TODO: the entire thread algorithm
+		while(not_empty(workpool)) { // The number of threads is dynamic, I'd rather avoid that for now.
+
+			#pragma omp critical
+			{
+				thr_board = pop_board(workpool);
+			}
+			if (thr_board == NULL) {
+				break; // Out of loop.
+			}
+			if(solved == SOLVED)
+				break;
+			int error_code = hdfs(&thr_board);
+			if(error_code == SOLVED){
+				#pragma omp critical
+				{
+					if(solved_board == NULL){
+						solved_board = thr_board;
+					}
+				}
+				solved = SOLVED;
+				break;
+			}
+		}
 	}
-	return board2mat(solved_board);
+	
+	destory_workpool(workpool);
+	destory_store(store); // TODO: Check if positioning is appropriate.
+	if (solved_board==NULL) {
+		return originalGrid;
+	} else {
+		return board2mat(solved_board);
+	}
 }
 
 // TODO: Test this.
@@ -613,13 +655,13 @@ int hdfs(cell_t** ptr_board) {
 	
 	if(solv_state == SOLVED) {
 		// Get rid of oldboard
-		printf("This happened\n");
+		// printf("This happened\n");
 		push_mem(store, oldboard);
 		return SOLVED;
 	} else if(solv_state == NO_SOLN) {
 
 		// Restore oldboard and return.
-		printf("That happened\n");
+		// printf("That happened\n");
 		push_mem(store, *ptr_board);
 		*ptr_board = oldboard;
 		return NO_SOLN;
@@ -629,22 +671,38 @@ int hdfs(cell_t** ptr_board) {
 	bon = get_branchon(*ptr_board);
 	nal = ((*ptr_board)[bon]).n_allowed;
 	// ASSERT: bon can be branched on.
+	int *alters, nalters; //nalters is an int.
+	alters = malloc(BOARD_SIZE*sizeof(int));
 	for(lst_iter=1; lst_iter<=nal; ++lst_iter) {
-		int *alters, nalters; //nalters is an int.
-		alters = malloc(BOARD_SIZE*sizeof(int));
 		nalters = -1; // These are used recursively. Hence, they can't be declared globally.
 		
 		int val = (*ptr_board)[bon].list[lst_iter];
 		set_board_value_idx(*ptr_board, bon, val , alters, &nalters);
+		
+		// Before you recurse, check if somebody else has solved it.
+		if (solved == SOLVED) { // 'Tis a global value.
+			push_mem(store, *ptr_board);
+			*ptr_board = oldboard;
+			free(alters);
+			return TIME_TO_LEAVE;
+		}
 		solv_state = hdfs(ptr_board);
+
 		if(solv_state == SOLVED) {
 			push_mem(store, oldboard);
+			free(alters);
 			return SOLVED;
+		} else if(solv_state == TIME_TO_LEAVE) {
+			// Free memory and leave.
+			push_mem(store, *ptr_board);
+			*ptr_board = oldboard;
+			free(alters);
+			return TIME_TO_LEAVE;
 		}
 		// copy_board(*ptr_board, oldboard); ITS WRONG ... hdfs restores to the board it found.
 		undo_alterations(*ptr_board, val, alters, &nalters);
 	}
-
+	free(alters);
 	push_mem(store, *ptr_board);
 	*ptr_board = oldboard;
 	return NO_SOLN;
