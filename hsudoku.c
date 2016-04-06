@@ -380,7 +380,10 @@ cell_t* push_board(workpool_t* pool, cell_t* board) {
 		pool->sz_alloc = 2*pool->sz_alloc;
 		free(oldarr); // Cleaning up after yourself.
 	}
-	retval = pop_mem(store);
+	#pragma omp critical (store_lock)
+	{
+		retval = pop_mem(store);
+	}
 	pool->arr_boards[pool->sz] = retval;
 	copy_board(retval, board); // Go in deep and copy stuff. O(n) operation man.
 	pool->sz++;
