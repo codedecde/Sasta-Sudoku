@@ -347,147 +347,67 @@ int not_empty(pool_t* pool) {
 }
 
 cell_t* pop_board(workpool_t* pool) {
-	if( omp_in_parallel() != 0 ) {
-		cell_t* ret_val = NULL;
-		#pragma omp critical 
-		{
-			if(pool->sz>0) {
-				pool->sz--;
-				ret_val  = pool->arr_boards[pool->sz];
-			} 
-		}
-		return ret_val;
-		
-	} else {
 		if(pool->sz>0) {
 			pool->sz--;
 			return pool->arr_boards[pool->sz];
 		} else {
 			return NULL;
 		}
-	}
-		
 }
 
 cell_t* pop_mem(board_store_t* pool) {
-	if(omp_in_parallel() != 0) {
-		cell_t* ret_val = NULL;
-		#pragma omp critical
-		{
-			if( not_empty(pool) ) {
-				ret_val =  pop_board(pool);
-			} else {
-				// Make a new board...allocate it, and return it.
-				// printf("Store is empty\n");		
-				cell_t* newboard;
-				newboard = init_board(newboard);
-				ret_val =  newboard;
-			}
-		}
-		return ret_val;
+	if( not_empty(pool) ) {
+		return pop_board(pool);
 	} else {
-		if( not_empty(pool) ) {
-			return pop_board(pool);
-		} else {
-			// Make a new board...allocate it, and return it.
-			// printf("Store is empty\n");		
-			cell_t* newboard;
-			newboard = init_board(newboard);
-			return newboard;
-		}
+		// Make a new board...allocate it, and return it.
+		// printf("Store is empty\n");		
+		cell_t* newboard;
+		newboard = init_board(newboard);
+		return newboard;
 	}
-
-	
 }
 cell_t* push_board(workpool_t* pool, cell_t* board) {
 	// IMPORTANT: The difference between push_board and push_mem is the copy that push_board performs, but push_mem doesnt
 	// Case 1: Need to grow... 
 	// Case 2: Don't need to grow... 
 	// Return ptr to the board that was pushed.
-	if(omp_in_parallel()!=0) {
-		cell_t * retval;
-		#pragma omp critical
-		{
-			if(pool->sz >= pool->sz_alloc) { // CASE 1 ... time to grow.
-				cell_t** oldarr = pool->arr_boards;
-				pool->arr_boards = malloc(2*pool->sz_alloc*sizeof(cell_t*));
-				// IMPORTANT: I don't do a memset here because I make no guarantees on pool->arr_boards[pool->sz...] anyway
-				memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
-				pool->sz_alloc = 2*pool->sz_alloc;
-				free(oldarr); // Cleaning up after yourself.
-			}
-			retval = pop_mem(store);
-			pool->arr_boards[pool->sz] = retval;
-			copy_board(retval, board); // Go in deep and copy stuff. O(n) operation man.
-			pool->sz++;
-		}
-		return retval;			
-	
-	} else {
-		cell_t * retval;
-		if(pool->sz >= pool->sz_alloc) { // CASE 1 ... time to grow.
-			cell_t** oldarr = pool->arr_boards;
-			pool->arr_boards = malloc(2*pool->sz_alloc*sizeof(cell_t*));
-			// IMPORTANT: I don't do a memset here because I make no guarantees on pool->arr_boards[pool->sz...] anyway
-			memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
-			pool->sz_alloc = 2*pool->sz_alloc;
-			free(oldarr); // Cleaning up after yourself.
-		}
-		retval = pop_mem(store);
-		pool->arr_boards[pool->sz] = retval;
-		copy_board(retval, board); // Go in deep and copy stuff. O(n) operation man.
-		pool->sz++;
-		return retval;
+	cell_t * retval;
+	if(pool->sz >= pool->sz_alloc) { // CASE 1 ... time to grow.
+		cell_t** oldarr = pool->arr_boards;
+		pool->arr_boards = malloc(2*pool->sz_alloc*sizeof(cell_t*));
+		// IMPORTANT: I don't do a memset here because I make no guarantees on pool->arr_boards[pool->sz...] anyway
+		memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
+		pool->sz_alloc = 2*pool->sz_alloc;
+		free(oldarr); // Cleaning up after yourself.
 	}
-
+	retval = pop_mem(store);
+	pool->arr_boards[pool->sz] = retval;
+	copy_board(retval, board); // Go in deep and copy stuff. O(n) operation man.
+	pool->sz++;
+	return retval;
 }
 int push_mem(board_store_t* pool, cell_t* board) {
 	// IMPORTANT: The difference between push_board and push_mem is the copy that push_board performs, but push_mem doesnt
 	// Case1: Had to grow pool... return 1
 	// Case2: Didn't have to grow... return 0
-	if(omp_in_parallel()!=0) {
-		int retval = 0;
-		#pragma omp critical
-		{
-			if( !not_full(pool) ) { // is full :P
-				cell_t** oldarr = pool->arr_boards;
-				pool->arr_boards = malloc(2*pool->sz_alloc*sizeof(cell_t*));
-				// IMPORTANT: I don't allocate the new boards... I expect them to be malloced elsewhere.
-				// 	Rationale:
-				// 		the board must've come from somewhere.
-				// 		Initially, all boards are born from the store.
-				// 		That would mean that somebody is mallocing boards, Me allocing boards would hence be pointless.
-				memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
-				pool->sz_alloc *= 2;
-				free(oldarr);
-				retval = 1;
-			}
-			pool->arr_boards[pool->sz] = board;
-			pool->sz++;
-		}
-		return retval;
-	
-	} else {
-		int retval = 0;
-		if( !not_full(pool) ) { // is full :P
-			cell_t** oldarr = pool->arr_boards;
-			pool->arr_boards = malloc(2*pool->sz_alloc*sizeof(cell_t*));
-			// IMPORTANT: I don't allocate the new boards... I expect them to be malloced elsewhere.
-			// 	Rationale:
-			// 		the board must've come from somewhere.
-			// 		Initially, all boards are born from the store.
-			// 		That would mean that somebody is mallocing boards, Me allocing boards would hence be pointless.
-			memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
-			pool->sz_alloc *= 2;
-			free(oldarr);
-			retval = 1;
-		}
-		pool->arr_boards[pool->sz] = board;
-		pool->sz++;
-		return retval;
+	int retval = 0;
+	if( !not_full(pool) ) { // is full :P
+		cell_t** oldarr = pool->arr_boards;
+		pool->arr_boards = malloc(2*pool->sz_alloc*sizeof(cell_t*));
+		// IMPORTANT: I don't allocate the new boards... I expect them to be malloced elsewhere.
+		// 	Rationale:
+		// 		the board must've come from somewhere.
+		// 		Initially, all boards are born from the store.
+		// 		That would mean that somebody is mallocing boards, Me allocing boards would hence be pointless.
+		memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
+		pool->sz_alloc *= 2;
+		free(oldarr);
+		retval = 1;
 	}
+	pool->arr_boards[pool->sz] = board;
+	pool->sz++;
+	return retval;
 }
-
 int dispose_board(cell_t* board, board_store_t* pool) {
 	if(pool==NULL) {
 		return destroy_board(board);
@@ -666,9 +586,9 @@ int** solveSudoku(int** originalGrid) {
 	}
 	
 	//TODO: Test populate_workpool
-	
+	printf("#brk1\n");
 	populate_workpool(workpool, orig_board, NCELL_POPULATE_WORKPOOL); // Branch on first ncells.
-	
+	printf("#brk2\n");
 	int thr_solved; // Private variable
 	cell_t* thr_board;
 
@@ -682,11 +602,9 @@ int** solveSudoku(int** originalGrid) {
 		// TODO: the entire thread algorithm
 		while(not_empty(workpool)) { // The number of threads is dynamic, I'd rather avoid that for now.
 
-			
-			#pragma omp critical
+			#pragma omp critical (thr_board_fetch_lock)
 			{
 				thr_board = pop_board(workpool);
-				printf("Reached here\n");
 			}
 			if (thr_board == NULL) {
 				break; // Out of loop.
