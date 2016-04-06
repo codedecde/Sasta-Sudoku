@@ -1,3 +1,4 @@
+/*2013CS10225_2013CS10773*/
 #include <stdio.h>	// for god knows what.
 #include <stdlib.h> // for malloc?
 #include <string.h> // for memcpy?
@@ -26,7 +27,7 @@ int mypow(int base, int power) { // Because C confused me .
 
 #define INITIAL_WORKPOOL_SZ 6
 #define MAX_WORKPOOL_SZ 40
-#define INITIAL_STORE_SZ 100*BOARD_SIZE
+#define INITIAL_STORE_SZ 100
 #define NCELL_POPULATE_WORKPOOL 2
 
 struct cell_t {
@@ -356,7 +357,7 @@ cell_t* pop_mem(board_store_t* pool) {
 		return pop_board(pool);
 	} else {
 		// Make a new board...allocate it, and return it.
-		printf("Store is empty\n");		
+		// printf("Store is empty\n");		
 		cell_t* newboard;
 		newboard = init_board(newboard);
 		return newboard;
@@ -396,7 +397,7 @@ int push_mem(board_store_t* pool, cell_t* board) {
 		// 		Initially, all boards are born from the store.
 		// 		That would mean that somebody is mallocing boards, Me allocing boards would hence be pointless.
 		memcpy(pool->arr_boards, oldarr, pool->sz_alloc*sizeof(cell_t*));
-		pool->sz_alloc = 2*pool->sz_alloc;
+		pool->sz_alloc *= 2;
 		free(oldarr);
 		retval = 1;
 	}
@@ -478,12 +479,11 @@ int populate_workpool(workpool_t* pool, cell_t* board, int ncells) {
 					push_board(pool, tobranch);	
 					push_mem(store, tobranch); // IMPORTANT: This must accompany push_board.
 				}
-				free(boardstack);
 				return -1; // A problem arose.
 			}
 			// Do da branch.
 			nal = tobranch[bon].n_allowed;
-			for(val_iter =1 ; val_iter<=nal; ++val_iter) {
+			for(val_iter = 1 ; val_iter<=nal; ++val_iter) {
 				// Alter tobranch[bon]
 				newbranch = push_board(pool, tobranch);		//Does a copy and whatnot.
 				set_board_value_idx(newbranch, bon, newbranch[bon].list[val_iter], NULL, NULL);
@@ -575,16 +575,13 @@ int** solveSudoku(int** originalGrid) {
 	
 	// TESTING CODE ENDS HERE
 	
-	// TODO: Do we want to run heuristic before branches?
-	// solved = heuristic_solve(orig_board);
-	// if( solved != PARTIAL_SOLN ) {
-	// 	return board2mat(orig_board);
-	// }
+	solved = heuristic_solve(orig_board);
+	if( solved != PARTIAL_SOLN ) {
+		return board2mat(orig_board);
+	}
 	
 	//TODO: Test populate_workpool
 	populate_workpool(workpool, orig_board, NCELL_POPULATE_WORKPOOL); // Branch on first ncells.
-	
-	push_mem(store, orig_board);
 
 	int thr_solved; // Private variable
 	cell_t* thr_board;
@@ -620,9 +617,9 @@ int** solveSudoku(int** originalGrid) {
 			}
 		}
 	}
-	
 	destory_workpool(workpool);
 	destory_store(store); // TODO: Check if positioning is appropriate.
+	destroy_board(orig_board);
 	if (solved_board==NULL) {
 		return originalGrid;
 	} else {
