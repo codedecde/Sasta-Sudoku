@@ -412,7 +412,11 @@ int dispose_board(cell_t* board, board_store_t* pool) {
 	if(pool==NULL) {
 		return destroy_board(board);
 	} else {
-		return push_mem(pool, board);
+		int retval;
+		#pragma omp critical (store_lock) 
+		{
+			push_mem(pool, board);
+		}
 	}
 }
 
@@ -656,7 +660,12 @@ int** solveSudoku(int** originalGrid) {
 // 			board = oldstate.
 int hdfs(cell_t** ptr_board) {
 	cell_t* oldboard;
-	oldboard = pop_mem(store); // Global variable?
+	// Critical section.
+	
+	#pragma omp critical (store_lock)
+	{
+		oldboard = pop_mem(store); // Global variable?
+	}
 	
 	copy_board(oldboard, *ptr_board); // returns 0... pretty much always
 	int solv_state = -1;
@@ -665,13 +674,19 @@ int hdfs(cell_t** ptr_board) {
 	if(solv_state == SOLVED) {
 		// Get rid of oldboard
 		// printf("This happened\n");
-		push_mem(store, oldboard);
+		#pragma omp critical (store_lock)
+		{
+			push_mem(store, oldboard);	
+		}
 		return SOLVED;
 	} else if(solv_state == NO_SOLN) {
 
 		// Restore oldboard and return.
 		// printf("That happened\n");
-		push_mem(store, *ptr_board);
+		#pragma omp critical (store_lock)
+		{
+			push_mem(store, *ptr_board);
+		}
 		*ptr_board = oldboard;
 		return NO_SOLN;
 	}
@@ -690,7 +705,10 @@ int hdfs(cell_t** ptr_board) {
 		
 		// Before you recurse, check if somebody else has solved it.
 		if (solved == SOLVED) { // 'Tis a global value.
-			push_mem(store, *ptr_board);
+			#pragma omp critical (store_lock)
+			{
+				push_mem(store, *ptr_board);
+			}
 			*ptr_board = oldboard;
 			free(alters);
 			return TIME_TO_LEAVE;
@@ -698,12 +716,18 @@ int hdfs(cell_t** ptr_board) {
 		solv_state = hdfs(ptr_board);
 
 		if(solv_state == SOLVED) {
-			push_mem(store, oldboard);
+			#pragma omp critical
+			{
+				push_mem(store, oldboard);	
+			}
 			free(alters);
 			return SOLVED;
 		} else if(solv_state == TIME_TO_LEAVE) {
 			// Free memory and leave.
-			push_mem(store, *ptr_board);
+			#pragma omp critical 
+			{
+				push_mem(store, *ptr_board);	
+			}
 			*ptr_board = oldboard;
 			free(alters);
 			return TIME_TO_LEAVE;
@@ -712,7 +736,10 @@ int hdfs(cell_t** ptr_board) {
 		undo_alterations(*ptr_board, val, alters, &nalters);
 	}
 	free(alters);
-	push_mem(store, *ptr_board);
+	#pragma omp critical
+	{
+		push_mem(store, *ptr_board);	
+	}
 	*ptr_board = oldboard;
 	return NO_SOLN;
 }
