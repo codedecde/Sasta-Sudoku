@@ -668,8 +668,9 @@ int** solveSudoku(int** originalGrid) {
 				solved = SOLVED;
 				break;
 			}
-			if(thr_board != NULL)
+			if(thr_board != NULL) {
 				push_mem(store,thr_board);
+			}
 		}
 		if ((thr_board != NULL) && (error_code != SOLVED))
 			push_mem(store,thr_board);
