@@ -15,12 +15,12 @@
 
 
 int hs(int*,int*, long* );
-int hdfs(int**,int**,long**);
+int hdfs(int*,int*,long*);
 int set_board_value(int*, int*, long*, int*,int,int);
 void undo_alterations(int*, int*, long*, int*, int,int);
 
 
-void printboard(int* brd) {
+void print_board(int* brd) {
 	int r,c;
 	for(r=0; r<SIZE; ++r) {
 		for(c=0; c<SIZE; ++c) {
@@ -30,7 +30,7 @@ void printboard(int* brd) {
 	}
 }
 
-#define TO_IDX(r,c) (r*SIZE + c)
+#define TO_IDX(r,c) ((r)*SIZE + (c))
 int** solveSudoku(int** origmat) {
 	int* brd;
 	long* bits;
@@ -42,7 +42,7 @@ int** solveSudoku(int** origmat) {
 	bits = malloc(BOARD_SIZE*sizeof(long));
 	int i;
 	for(i=0; i<SIZE; ++i) {
-		memmove(brd+ i*SIZE, origmat[i], SIZE*sizeof(int));
+		memmove(brd + i*SIZE, origmat[i], SIZE*sizeof(int));
 	}
 	int r,c,b,idx,rp,cp;
 	for(i=0 ;i < BOARD_SIZE;++i){
@@ -83,30 +83,45 @@ int** solveSudoku(int** origmat) {
 			}
 		}
 	}
-
+	// for(r=0; r<SIZE; ++r) {
+	// 	for(c=0; c<SIZE; ++c) {
+	// 		printf("(%d,%d):", r,c);
+	// 		if (origmat[r][c]!=0) {
+	// 			printf("%d \n", origmat[r][c]);
+	// 		} else {
+	// 			for(idx=1; idx<=SIZE; ++idx) {
+	// 				if (bits[TO_IDX(r,c)] & (1<<idx)) {
+	// 					printf("%d ", idx);
+	// 				}
+	// 			}
+	// 			printf(" nals=%d\n", nals[TO_IDX(r,c)]);
+				
+	// 		}
+	// 	}
+	// }
 	int global_solved = PARTIAL_SOLN;
 	// ASSERT: initialization done.
-	global_solved = hdfs(&brd,&nals,&bits);
+	global_solved = hdfs(brd,nals,bits);
+
 	for(r = 0; r<SIZE;++r){
 		for(c = 0; c < SIZE; ++c){
 			origmat[r][c] = brd[TO_IDX(r,c)];
+
 		}
 	}
 	return origmat;
 }
 
-int hdfs(int** ptrbrd,int** ptrnals,long** ptrbits){
-	int* brd = *ptrbrd;
-	int* nals = *ptrnals;
-	long* bits = *ptrbits;
-	int mysolved = PARTIAL_SOLN;
-	int* lbrd = malloc(BOARD_SIZE*sizeof(int));
-	int* lnals = malloc(BOARD_SIZE*sizeof(int));
-	long* lbits = malloc(BOARD_SIZE*sizeof(long));
+int hdfs(int* brd,int* nals,long* bits){
 	
-	memmove(lbrd,brd,BOARD_SIZE*sizeof(int));
-	memmove(lnals,nals,BOARD_SIZE*sizeof(int));
-	memmove(lbits,bits,BOARD_SIZE*sizeof(long));
+	int mysolved = PARTIAL_SOLN;
+	// int* lbrd = malloc(BOARD_SIZE*sizeof(int));
+	// int* lnals = malloc(BOARD_SIZE*sizeof(int));
+	// long* lbits = malloc(BOARD_SIZE*sizeof(long));
+	
+	// memmove(lbrd,brd,BOARD_SIZE*sizeof(int));
+	// memmove(lnals,nals,BOARD_SIZE*sizeof(int));
+	// memmove(lbits,bits,BOARD_SIZE*sizeof(long));
 
 	/*TODO HS*/
 
@@ -114,13 +129,13 @@ int hdfs(int** ptrbrd,int** ptrnals,long** ptrbits){
 	int min_val = 2*SIZE;
 	int loc_nal;
 	int idx;
-	for(idx = 0;idx<BOARD_SIZE;++idx){
+	for(idx = 0;idx<BOARD_SIZE;++idx){		
 		if(brd[idx] == 0 ){
 			loc_nal = nals[idx];
 			if(loc_nal == 0){
-				free(lbrd);
-				free(lnals);
-				free(lbits);
+				// free(lbrd);
+				// free(lnals);
+				// free(lbits);
 				return NO_SOLN;
 			}
 			else if(loc_nal < min_val){
@@ -129,10 +144,14 @@ int hdfs(int** ptrbrd,int** ptrnals,long** ptrbits){
 			}
 		}
 	}
+	
+	// printf("mindx,v:%d,%d\n", min_idx, min_val);
+	// print_board(brd);
+
 	if(min_idx == -1){
-		free(lbrd);
-		free(lnals);
-		free(lbits);
+		// free(lbrd);
+		// free(lnals);
+		// free(lbits);
 		return SOLVED;
 	}
 
@@ -140,14 +159,19 @@ int hdfs(int** ptrbrd,int** ptrnals,long** ptrbits){
 	int val_iter;
 	int* alters = malloc(4*SIZE*sizeof(int));
 	int nalters = -1;
+
+	long oldbits = bits[min_idx];
+	int oldnals = nals[min_idx];
+
 	for(val_iter = 1; val_iter <= SIZE; ++val_iter){
-		if(bits[min_idx] & (1<<val_iter)){
+		if(oldbits & (1<<val_iter)){
+			// printf("at minidx=%d, trying val=%d\n", min_idx, val_iter);
 			nalters = set_board_value(brd,nals,bits,alters,min_idx,val_iter);
-			mysolved = hdfs(ptrbrd,ptrnals,ptrbits);
+			mysolved = hdfs(brd,nals,bits);
 			if(mysolved == SOLVED){
-				free(lbrd);
-				free(lnals);
-				free(lbits);
+				// free(lbrd);
+				// free(lnals);
+				// free(lbits);
 				return SOLVED;
 			}else if(mysolved == TIME_TO_LEAVE){
 				//TODO: Free memory and leave
@@ -156,12 +180,9 @@ int hdfs(int** ptrbrd,int** ptrnals,long** ptrbits){
 		}
 	}
 	/* NO SOLUTION*/
-	free(brd);
-	free(nals);
-	free(bits);
-	brd = lbrd;
-	nals = lnals;
-	bits = lbits;
+	brd[min_idx] = 0;
+	bits[min_idx] = oldbits;
+	nals[min_idx] = oldnals;
 	return NO_SOLN;
 }
 
@@ -180,22 +201,21 @@ int set_board_value(int* brd, int* nals, long* bits, int* alters,int idx,int val
 
 	for(i = 0; i < SIZE ;++i ){
 		b = TO_IDX(r,i);
-		if(bits[b] & bitval){
+		if((bits[b] & bitval) > 0){
 			alters[++nalters] = b;
 			bits[b] &= ~bitval;
 			nals[b]--;
 		}
 		b = TO_IDX(i,c);
 
-		if(bits[b] & bitval){
+		if((bits[b] & bitval) > 0){
 			alters[++nalters] = b;
 			bits[b] &= ~bitval;
 			nals[b]--;
 		}
 		
-		b = TO_IDX(rp + (i / MINIGRIDSIZE),cp + (i%MINIGRIDSIZE));
-
-		if(bits[b] & bitval){
+		b = TO_IDX((rp + (i / MINIGRIDSIZE)),(cp + (i%MINIGRIDSIZE)));
+		if((bits[b] & bitval) > 0){
 			alters[++nalters] = b;
 			bits[b] &= ~bitval;
 			nals[b]--;
@@ -209,7 +229,7 @@ void undo_alterations(int* brd, int* nals, long* bits, int* alters, int nalters,
 	int bitval = 1<<val;
 	while(nalters > -1){
 		bits[alters[nalters]] |= bitval;
-		nals[alters[nalters]]--;
+		nals[alters[nalters]]++;
 		nalters--;
 	}
 	return;
