@@ -115,13 +115,13 @@ int** solveSudoku(int** origmat) {
 int hdfs(int* brd,int* nals,long* bits){
 	
 	int mysolved = PARTIAL_SOLN;
-	// int* lbrd = malloc(BOARD_SIZE*sizeof(int));
-	// int* lnals = malloc(BOARD_SIZE*sizeof(int));
-	// long* lbits = malloc(BOARD_SIZE*sizeof(long));
+	int* lbrd = malloc(BOARD_SIZE*sizeof(int));
+	int* lnals = malloc(BOARD_SIZE*sizeof(int));
+	long* lbits = malloc(BOARD_SIZE*sizeof(long));
 	
-	// memmove(lbrd,brd,BOARD_SIZE*sizeof(int));
-	// memmove(lnals,nals,BOARD_SIZE*sizeof(int));
-	// memmove(lbits,bits,BOARD_SIZE*sizeof(long));
+	memmove(lbrd,brd,BOARD_SIZE*sizeof(int));
+	memmove(lnals,nals,BOARD_SIZE*sizeof(int));
+	memmove(lbits,bits,BOARD_SIZE*sizeof(long));
 
 	/*TODO HS*/
 
@@ -133,9 +133,9 @@ int hdfs(int* brd,int* nals,long* bits){
 		if(brd[idx] == 0 ){
 			loc_nal = nals[idx];
 			if(loc_nal == 0){
-				// free(lbrd);
-				// free(lnals);
-				// free(lbits);
+				free(lbrd);
+				free(lnals);
+				free(lbits);
 				return NO_SOLN;
 			}
 			else if(loc_nal < min_val){
@@ -149,9 +149,9 @@ int hdfs(int* brd,int* nals,long* bits){
 	// print_board(brd);
 
 	if(min_idx == -1){
-		// free(lbrd);
-		// free(lnals);
-		// free(lbits);
+		free(lbrd);
+		free(lnals);
+		free(lbits);
 		return SOLVED;
 	}
 
@@ -160,18 +160,18 @@ int hdfs(int* brd,int* nals,long* bits){
 	int* alters = malloc(4*SIZE*sizeof(int));
 	int nalters = -1;
 
-	long oldbits = bits[min_idx];
-	int oldnals = nals[min_idx];
+	// long oldbits = bits[min_idx];
+	// int oldnals = nals[min_idx];
 
 	for(val_iter = 1; val_iter <= SIZE; ++val_iter){
-		if(oldbits & (1<<val_iter)){
+		if(lbits[min_idx] & (1<<val_iter)){
 			// printf("at minidx=%d, trying val=%d\n", min_idx, val_iter);
 			nalters = set_board_value(brd,nals,bits,alters,min_idx,val_iter);
 			mysolved = hdfs(brd,nals,bits);
 			if(mysolved == SOLVED){
-				// free(lbrd);
-				// free(lnals);
-				// free(lbits);
+				free(lbrd);
+				free(lnals);
+				free(lbits);
 				return SOLVED;
 			}else if(mysolved == TIME_TO_LEAVE){
 				//TODO: Free memory and leave
@@ -179,10 +179,12 @@ int hdfs(int* brd,int* nals,long* bits){
 			undo_alterations(brd,nals,bits,alters,nalters,val_iter);
 		}
 	}
+	
 	/* NO SOLUTION*/
-	brd[min_idx] = 0;
-	bits[min_idx] = oldbits;
-	nals[min_idx] = oldnals;
+	memmove(brd, lbrd, BOARD_SIZE*sizeof(int));
+	memmove(nals, lnals, BOARD_SIZE*sizeof(int));
+	memmove(bits, lbits, BOARD_SIZE*sizeof(long));
+	
 	return NO_SOLN;
 }
 
