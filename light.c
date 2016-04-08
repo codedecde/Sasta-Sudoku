@@ -53,6 +53,7 @@ int* brd;
 long* bits;
 int* nals;
 int global_solved;
+
 int wpl_sz, wpl_szalloc;
 int** wpl_brd;
 int** wpl_nals;
@@ -333,9 +334,13 @@ int** solveSudoku(int** origmat) {
 
 	// Initialize board, bitmasks, nals.
 	global_solved = PARTIAL_SOLN;
-	initgrvy(100); // TODO: change initial graveyard size.
-	initwpl(100);
-	popmem(&brd, &nals, &bits);
+	// initgrvy(100); // TODO: change initial graveyard size.
+	// initwpl(100);
+	// popmem(&brd, &nals, &bits);
+	
+	brd = malloc(BOARD_SIZE*sizeof(int));
+	nals = malloc(BOARD_SIZE*sizeof(int));
+	bits = malloc(BOARD_SIZE*sizeof(long));
 
 	int i;
 	for(i=0; i<SIZE; ++i) {
@@ -391,17 +396,68 @@ int** solveSudoku(int** origmat) {
 		for(r = 0; r<SIZE;++r){ // Store brd into origmat.
 			for(c = 0; c < SIZE; ++c){
 				origmat[r][c] = brd[TO_IDX(r,c)];
-
 			}
 		}
+		return origmat;
 	}
 
 	// ASSERT: global_solved = PARTIAL_SOLN	
 	
-	populate_wpl(MINIGRIDSIZE); // Number of cells to fill up.
+	// populate_wpl(MINIGRIDSIZE); // Number of cells to fill up.
 	// printf("wpl sz= %d\n", wpl_sz);
-	#pragma omp parallel shared(wpl_sz,wpl_szalloc,wpl_bits, wpl_nals, wpl_brd, grvy_sz, grvy_szalloc, grvy_bits, grvy_nals, grvy_brd)
+	int nt  = omp_get_num_threads();
+	// Construct array of fillables.
+	int* wpl_i_sz = malloc((SIZE+1)*sizeof(int)); // Number of indices with i fillable values.
+	memset(wpl_i_sz, 0, (SIZE+1)*sizeof(int));
+	wpl_brd = malloc( 2*(BOARD_SIZE>nt? BOARD_SIZE:nt) * sizeof(int*));
+	wpl_nals= malloc( 2*(BOARD_SIZE>nt? BOARD_SIZE:nt) * sizeof(int*));
+	wpl_bits= malloc( 2*(BOARD_SIZE>nt? BOARD_SIZE:nt) * sizeof(long*));
+	int** wplhelpers = malloc( 2*(BOARD_SIZE>nt? BOARD_SIZE:nt) * sizeof(int*));
+	for(idx=0; idx<BOARD_SIZE; ++idx) {
+		// Look at nals[idx] and add it to the appropriate list.
+		if (wpl_i_sz[nals[idx]]==0) {
+			wplhelpers[nals[idx]] = malloc(BOARD_SIZE*sizeof(int));
+		}
+		wplhelpers[nals[idx]][wpl_i_sz[nals[idx]]] = idx;
+		wpl_i_sz[nals[idx]]++;
+	}
+
+	// MAKING THE wpl, wpl_sz
+	int fl_brk = 0;
+	int jdx, tochng,vit;
+	for(idx=2; (idx<=SIZE) && (fl_brk==0); ++idx) {
+		for(jdx=0; (jdx<wpl_i_sz[idx]) && (fl_brk==0); ++jdx) {
+			for(vit=1; vit<=SIZE; ++vit) {
+				tochng = wplhelpers[idx][jdx];
+				if( bits[tochng] & (1<<vit)) {
+					int* newbrd = malloc(BOARD_SIZE*sizeof(int));
+					int* newnals= malloc(BOARD_SIZE*sizeof(int));
+					long* newbits=malloc(BOARD_SIZE*sizeof(long));
+					memmove(newbrd, brd, BOARD_SIZE*sizeof(int));
+					memmove(newnals, nals, BOARD_SIZE*sizeof(int));
+					memmove(newbits, bits, BOARD_SIZE*sizeof(long));
+
+					set_board_value(newbrd, newnals, newbits, NULL, tochng, vit);
+
+					wpl_brd[wpl_sz] = newbrd;
+					wpl_nals[wpl_sz]=newnals;
+					wpl_bits[wpl_sz]=newbits;
+					wpl_sz++;
+				}
+			}
+			if(wpl_sz > nt) {
+				fl_brk = 1;
+			}
+		}
+	}
+
+	#pragma omp parallel 
 	{
+		#pragma omp single
+		{
+			nt = omp_get_num_threads();
+		}
+		int wpliter = omp_get_thread_num();
 		int* tbrd;
 		int* tnals;
 		long* tbits;
@@ -409,14 +465,19 @@ int** solveSudoku(int** origmat) {
 		int didpop, loc_solved;
 		arr_tlr = malloc(3*BOARD_SIZE*sizeof(int));
 		loc_solved = PARTIAL_SOLN;
-		while(wpl_sz>0) {
-			#pragma omp critical (workpool_lock)
-			{
-				didpop = popwpl(&tbrd, &tnals, &tbits);
-			}
-			if(didpop != 1) {
-				break; // Did not pop.
-			}
+		while( wpliter < wpl_sz ) {
+			
+			// #pragma omp critical (workpool_lock)
+			// {
+			// 	didpop = popwpl(&tbrd, &tnals, &tbits);
+			// }
+			tbrd = wpl_brd[wpliter];
+			tnals= wpl_nals[wpliter];
+			tbits= wpl_bits[wpliter];
+
+			// if(didpop != 1) {
+			// 	break; // Did not pop.
+			// }
 			// printf("tid:%d got here\n", omp_get_thread_num());
 			loc_solved = hdfs(tbrd, tnals, tbits, arr_tlr);
 			if(loc_solved == SOLVED) {
@@ -437,17 +498,21 @@ int** solveSudoku(int** origmat) {
 			} else if(global_solved == SOLVED) {
 				break;
 			}
-			#pragma omp critical (avoiding_dbf)
-			{
-				pushmem(tbrd, tnals, tbits);
-				didpop = 0; // Prevents it from getting pushed again.
-			}
+			
+			free(tbrd);
+			free(tnals);
+			free(tbits);
+			tbrd = NULL;
+			wpliter += nt;
 		}
 		free(arr_tlr);
-		if( loc_solved == SOLVED || didpop != 1) {
+		if( loc_solved == SOLVED || (tbrd==NULL)) {
 			// Do nothing.
 		} else {
-			pushmem(tbrd, tnals, tbits);
+			free(tbrd);
+			free(tnals);
+			free(tbits);
+			// pushmem(tbrd, tnals, tbits);
 		}
 	}
 
@@ -455,11 +520,10 @@ int** solveSudoku(int** origmat) {
 	for(r = 0; r<SIZE;++r){
 		for(c = 0; c < SIZE; ++c){
 			origmat[r][c] = brd[TO_IDX(r,c)];
-
 		}
 	}
-	destroy_wpl();
-	destroy_grvy();
+	// destroy_wpl();
+	// destroy_grvy();
 	return origmat;
 }
 
@@ -472,7 +536,10 @@ int hdfs(int* brd,int* nals,long* bits, int* base){
 	// lbrd = malloc(BOARD_SIZE*sizeof(int));
 	// lnals = malloc(BOARD_SIZE*sizeof(int));
 	// lbits = malloc(BOARD_SIZE*sizeof(long));
-	popmem(&lbrd, &lnals, &lbits);
+	// popmem(&lbrd, &lnals, &lbits);
+	lbrd = malloc(BOARD_SIZE*sizeof(int));
+	lnals= malloc(BOARD_SIZE*sizeof(int));
+	lbits= malloc(BOARD_SIZE*sizeof(long));
 
 	memmove(lbrd,brd,BOARD_SIZE*sizeof(int));
 	memmove(lnals,nals,BOARD_SIZE*sizeof(int));
@@ -481,20 +548,20 @@ int hdfs(int* brd,int* nals,long* bits, int* base){
 	mysolved = hs(brd,nals,bits, base);
 
 	if(mysolved == SOLVED || mysolved == TIME_TO_LEAVE){
-		// free(lbrd);
-		// free(lnals);
-		// free(lbits);
-		pushmem(lbrd, lnals, lbits);
+		free(lbrd);
+		free(lnals);
+		free(lbits);
+		// pushmem(lbrd, lnals, lbits);
 		return mysolved;
 	}
 	if(mysolved == NO_SOLN){
 		memmove(brd, lbrd, BOARD_SIZE*sizeof(int));
 		memmove(nals, lnals, BOARD_SIZE*sizeof(int));
 		memmove(bits, lbits, BOARD_SIZE*sizeof(long));
-		// free(lbrd);
-		// free(lnals);
-		// free(lbits);
-		pushmem(lbrd, lnals, lbits);
+		free(lbrd);
+		free(lnals);
+		free(lbits);
+		// pushmem(lbrd, lnals, lbits);
 		return NO_SOLN;
 	}
 
@@ -506,17 +573,24 @@ int hdfs(int* brd,int* nals,long* bits, int* base){
 		if(brd[idx] == 0 ){
 			loc_nal = nals[idx];
 			if(loc_nal == 0){
-				pushmem(lbrd, lnals, lbits);
+				free(lbrd);
+				free(lnals);
+				free(lbits);
+				// pushmem(lbrd, lnals, lbits);
 				return NO_SOLN;
 			} else if(loc_nal < min_val){
 				min_val = loc_nal;
 				min_idx = idx;
+				break;
 			}
 		}
 	}
 	
 	if(min_idx == -1){
-		pushmem(lbrd, lnals, lbits);
+		free(lbrd);
+		free(lnals);
+		free(lbits);
+		// pushmem(lbrd, lnals, lbits);
 		return SOLVED;
 	}
 
@@ -535,10 +609,17 @@ int hdfs(int* brd,int* nals,long* bits, int* base){
 			nalters = set_board_value(brd,nals,bits,alters,min_idx,val_iter);
 			mysolved = hdfs(brd,nals,bits, base);
 			if(mysolved == SOLVED){
-				pushmem(lbrd, lnals, lbits);
+				free(lbrd);
+				free(lnals);
+				free(lbits);
+				// pushmem(lbrd, lnals, lbits);
 				return SOLVED;
 			}else if(global_solved == SOLVED || mysolved == TIME_TO_LEAVE){
-				pushmem(lbrd, lnals, lbits);
+				free(lbrd);
+				free(lnals);
+				free(lbits);
+
+				// pushmem(lbrd, lnals, lbits);
 				return TIME_TO_LEAVE;
 			}
 			undo_alterations(brd,nals,bits,alters,nalters,val_iter);
@@ -549,8 +630,10 @@ int hdfs(int* brd,int* nals,long* bits, int* base){
 	memmove(brd, lbrd, BOARD_SIZE*sizeof(int));
 	memmove(nals, lnals, BOARD_SIZE*sizeof(int));
 	memmove(bits, lbits, BOARD_SIZE*sizeof(long));
-	pushmem(lbrd, lnals, lbits);
-	
+	// pushmem(lbrd, lnals, lbits);
+	free(lbrd);
+	free(lnals);
+	free(lbits);	
 	return NO_SOLN;
 }
 
