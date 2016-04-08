@@ -705,7 +705,7 @@ void undo_alterations(int* brd, int* nals, long* bits, int* alters, int nalters,
 	}
 	return;
 }
-#define THRESHOLD_LR (6*BOARD_SIZE/7)
+#define THRESHOLD_LR (SIZE)
 int hs(int* brd,int* nals,long* bits, int* base){
 	int fl_changed = 1, fl_unfilled = 0;
 	int idx,val,ctr;
@@ -752,7 +752,7 @@ eliminate:
 	if(fl_unfilled == 0){
 		return SOLVED;
 	}
-	if( nunfilled > THRESHOLD_LR ) {
+	if( nunfilled < THRESHOLD_LR ) {
 		fl_changed = 0;
 		for(idx=0; idx<BOARD_SIZE; ++idx) {
 			r = idx/SIZE;
