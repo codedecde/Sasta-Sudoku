@@ -4,6 +4,7 @@
 #include <string.h> // for memcpy?
 #include <assert.h>
 #include <limits.h>
+#include <math.h>
 #include <omp.h>	// OpenMP
 #include "sudoku.h"
 
@@ -14,8 +15,8 @@
 #define TIME_TO_LEAVE 42
 
 
-int hs(int*,int*, long* );
-int hdfs(int*,int*,long*);
+int hs(int*,int*, long* , int*);
+int hdfs(int*,int*,long*, int*);
 int set_board_value(int*, int*, long*, int*,int,int);
 void undo_alterations(int*, int*, long*, int*, int,int);
 
@@ -83,26 +84,13 @@ int** solveSudoku(int** origmat) {
 			}
 		}
 	}
-	// for(r=0; r<SIZE; ++r) {
-	// 	for(c=0; c<SIZE; ++c) {
-	// 		printf("(%d,%d):", r,c);
-	// 		if (origmat[r][c]!=0) {
-	// 			printf("%d \n", origmat[r][c]);
-	// 		} else {
-	// 			for(idx=1; idx<=SIZE; ++idx) {
-	// 				if (bits[TO_IDX(r,c)] & (1<<idx)) {
-	// 					printf("%d ", idx);
-	// 				}
-	// 			}
-	// 			printf(" nals=%d\n", nals[TO_IDX(r,c)]);
-				
-	// 		}
-	// 	}
-	// }
-	int global_solved = PARTIAL_SOLN;
-	// ASSERT: initialization done.
-	global_solved = hdfs(brd,nals,bits);
 
+	int global_solved = PARTIAL_SOLN;
+	int* arr_lr = malloc(3*BOARD_SIZE);
+	// ASSERT: initialization done.
+
+	global_solved = hdfs(brd,nals,bits, arr_lr);
+	free(arr_lr);
 	for(r = 0; r<SIZE;++r){
 		for(c = 0; c < SIZE; ++c){
 			origmat[r][c] = brd[TO_IDX(r,c)];
@@ -112,7 +100,7 @@ int** solveSudoku(int** origmat) {
 	return origmat;
 }
 
-int hdfs(int* brd,int* nals,long* bits){
+int hdfs(int* brd,int* nals,long* bits, int* base){
 	
 	int mysolved = PARTIAL_SOLN;
 	int* lbrd = malloc(BOARD_SIZE*sizeof(int));
@@ -123,7 +111,25 @@ int hdfs(int* brd,int* nals,long* bits){
 	memmove(lnals,nals,BOARD_SIZE*sizeof(int));
 	memmove(lbits,bits,BOARD_SIZE*sizeof(long));
 
-	/*TODO HS*/
+	mysolved = hs(brd,nals,bits, base);
+
+	if(mysolved == SOLVED || mysolved == TIME_TO_LEAVE){
+		free(lbrd);
+		free(lnals);
+		free(lbits);
+		return mysolved;
+	}
+	if(mysolved == NO_SOLN){
+		memmove(brd, lbrd, BOARD_SIZE*sizeof(int));
+		memmove(nals, lnals, BOARD_SIZE*sizeof(int));
+		memmove(bits, lbits, BOARD_SIZE*sizeof(long));
+		free(lbrd);
+		free(lnals);
+		free(lbits);
+		return NO_SOLN;
+	}
+
+	
 
 	int min_idx = -1;
 	int min_val = 2*SIZE;
@@ -162,12 +168,13 @@ int hdfs(int* brd,int* nals,long* bits){
 
 	// long oldbits = bits[min_idx];
 	// int oldnals = nals[min_idx];
-
+	long oldbits = bits[min_idx];
+	
 	for(val_iter = 1; val_iter <= SIZE; ++val_iter){
-		if(lbits[min_idx] & (1<<val_iter)){
+		if(oldbits & (1<<val_iter)){
 			// printf("at minidx=%d, trying val=%d\n", min_idx, val_iter);
 			nalters = set_board_value(brd,nals,bits,alters,min_idx,val_iter);
-			mysolved = hdfs(brd,nals,bits);
+			mysolved = hdfs(brd,nals,bits, base);
 			if(mysolved == SOLVED){
 				free(lbrd);
 				free(lnals);
@@ -184,6 +191,9 @@ int hdfs(int* brd,int* nals,long* bits){
 	memmove(brd, lbrd, BOARD_SIZE*sizeof(int));
 	memmove(nals, lnals, BOARD_SIZE*sizeof(int));
 	memmove(bits, lbits, BOARD_SIZE*sizeof(long));
+	free(lbrd);
+	free(lnals);
+	free(lbits);
 	
 	return NO_SOLN;
 }
@@ -199,26 +209,38 @@ int set_board_value(int* brd, int* nals, long* bits, int* alters,int idx,int val
 	brd[idx] = val;
 	nals[idx] = 0;
 	bits[idx] = 0;
+	
+	if(val < 0){
+		printf("Fucked\n");
+		assert(0);
 
+	}
 
 	for(i = 0; i < SIZE ;++i ){
 		b = TO_IDX(r,i);
 		if((bits[b] & bitval) > 0){
-			alters[++nalters] = b;
+			if(alters != NULL) {
+				alters[++nalters] = b;
+			}
+				
 			bits[b] &= ~bitval;
 			nals[b]--;
 		}
 		b = TO_IDX(i,c);
 
 		if((bits[b] & bitval) > 0){
-			alters[++nalters] = b;
+			if(alters != NULL) {
+				alters[++nalters] = b;
+			}
 			bits[b] &= ~bitval;
 			nals[b]--;
 		}
 		
 		b = TO_IDX((rp + (i / MINIGRIDSIZE)),(cp + (i%MINIGRIDSIZE)));
 		if((bits[b] & bitval) > 0){
-			alters[++nalters] = b;
+			if(alters != NULL) {
+				alters[++nalters] = b;
+			}
 			bits[b] &= ~bitval;
 			nals[b]--;
 		}
@@ -235,4 +257,106 @@ void undo_alterations(int* brd, int* nals, long* bits, int* alters, int nalters,
 		nalters--;
 	}
 	return;
+}
+
+
+int hs(int* brd,int* nals,long* bits, int* base){
+	int fl_changed = 1, fl_unfilled = 0;
+	int idx,val;
+	int type;
+	int b,r,c,bidx;
+	while(fl_changed){
+			fl_changed = 0;
+			fl_unfilled = 0;
+			for(idx = 0; idx < BOARD_SIZE;++idx){
+				if(nals[idx] == 0){
+					if(brd[idx] == 0){
+						return NO_SOLN;
+					}
+				}else if(nals[idx] == 1){
+					val = log2(bits[idx] & -bits[idx]);
+					set_board_value(brd,nals,bits,NULL,idx,val); 
+					fl_changed = 1; 
+				}
+				else{
+					fl_unfilled = 1;
+				}
+			}
+		}
+	if(fl_unfilled == 0){
+		return SOLVED;
+	}
+	else{
+		return PARTIAL_SOLN;
+	}
+	/*while(fl_changed){
+		// Lone ranger...
+		fl_changed = 0;
+
+		// Make base
+		memset(base, 0, 3*BOARD_SIZE);
+		
+		for(idx=0; idx<BOARD_SIZE; ++idx) {
+			for(val=1; val<=SIZE; ++val) {
+				if (bits[idx] & (1<<val)) {
+					assert(brd[idx] == 0); //TODO: REMOVE
+					
+					r = (idx)/SIZE;
+					base[r*SIZE + (val-1)] = (base[r*SIZE + (val-1)] ==  0 ) ? (idx+1) : -1;
+					
+					r = (idx%SIZE);
+					base[BOARD_SIZE + r*SIZE + (val-1)] = (base[BOARD_SIZE + r*SIZE + (val-1)] == 0 ) ? (idx + 1) : -1;
+					
+					r = ((idx/SIZE)/(MINIGRIDSIZE))*MINIGRIDSIZE + (r/MINIGRIDSIZE);
+					
+					base[2*BOARD_SIZE + r*SIZE + (val-1)] = (base[2*BOARD_SIZE+ r*SIZE + (val-1)] == 0 ) ? (idx + 1) : -1;
+				}
+			}
+		}
+		// Use base
+		for(r=0; r<SIZE; ++r) {
+			for(c=0; c<SIZE; ++c) {
+				bidx = r*SIZE + c;
+				b = base[bidx] - 1;
+				
+				if((b >= 0 ) && (brd[b] == 0)) {
+					set_board_value(brd,nals,bits,NULL,b,c+1);
+					fl_changed = 1;
+				}
+					
+				
+				bidx += BOARD_SIZE;
+				b = base[bidx] - 1;
+				if((b >= 0 ) && (brd[b] == 0)) {
+					set_board_value(brd,nals,bits,NULL,b,c+1);
+					fl_changed = 1;
+				}
+				
+				bidx += BOARD_SIZE;
+				b = base[bidx] - 1;
+				if((b >= 0 ) && (brd[b] == 0)) {
+					set_board_value(brd,nals,bits,NULL,b,c+1);
+					fl_changed = 1;
+				}
+			}
+		}
+	}
+	// Set unfilled flag.
+	fl_unfilled = 0;
+	for(idx=0; idx<BOARD_SIZE; ++idx) {
+		if(brd[idx]==0) {
+			if(nals[idx]>0) {
+				fl_unfilled = 1;
+				break;
+			} else {
+				return NO_SOLN;
+			}
+		}
+	}
+	print_board(brd);
+	if(fl_unfilled==0) {
+		return SOLVED;
+	} else {
+		return PARTIAL_SOLN;
+	}*/
 }
