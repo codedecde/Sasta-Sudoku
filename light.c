@@ -648,44 +648,52 @@ int set_board_value(int* brd, int* nals, long* bits, int* alters,int idx,int val
 	brd[idx] = val;
 	nals[idx] = 0;
 	bits[idx] = 0;
-	
-	if(val < 0){
-		printf("Fucked\n");
-		assert(0);
 
-	}
-
-	for(i = 0; i < SIZE ;++i ){
-		b = TO_IDX(r,i);
-		if((bits[b] & bitval) > 0){
-			if(alters != NULL) {
-				alters[++nalters] = b;
+	if(alters!=NULL) {
+		for(i = 0; i < SIZE ;++i ){
+			b = TO_IDX(r,i);
+			if((bits[b] & bitval) > 0){
+				alters[++nalters] = b;	
+				bits[b] &= ~bitval;
+				nals[b]--;
 			}
-				
-			bits[b] &= ~bitval;
-			nals[b]--;
-		}
-		b = TO_IDX(i,c);
+			b = TO_IDX(i,c);
 
-		if((bits[b] & bitval) > 0){
-			if(alters != NULL) {
+			if((bits[b] & bitval) > 0){
 				alters[++nalters] = b;
+				bits[b] &= ~bitval;
+				nals[b]--;
 			}
-			bits[b] &= ~bitval;
-			nals[b]--;
-		}
 		
-		b = TO_IDX((rp + (i / MINIGRIDSIZE)),(cp + (i%MINIGRIDSIZE)));
-		if((bits[b] & bitval) > 0){
-			if(alters != NULL) {
+			b = TO_IDX((rp + (i / MINIGRIDSIZE)),(cp + (i%MINIGRIDSIZE)));
+			if((bits[b] & bitval) > 0){
 				alters[++nalters] = b;
+				bits[b] &= ~bitval;
+				nals[b]--;
 			}
-			bits[b] &= ~bitval;
-			nals[b]--;
 		}
+		return nalters;	
+	} else {
+		for(i = 0; i < SIZE ;++i ){
+			b = TO_IDX(r,i);
+			if((bits[b] & bitval) > 0){
+				bits[b] &= ~bitval;
+				nals[b]--;
+			}
+			b = TO_IDX(i,c);
+			if((bits[b] & bitval) > 0){
+				bits[b] &= ~bitval;
+				nals[b]--;
+			}
+			b = TO_IDX((rp + (i / MINIGRIDSIZE)),(cp + (i%MINIGRIDSIZE)));
+			if((bits[b] & bitval) > 0){
+				bits[b] &= ~bitval;
+				nals[b]--;
+			}
+		}
+		return nalters;	
 	}
-
-	return nalters;
+	
 }
 
 void undo_alterations(int* brd, int* nals, long* bits, int* alters, int nalters,int val){
@@ -710,6 +718,8 @@ int hs(int* brd,int* nals,long* bits, int* base){
 	// Elimination
 	fl_changed = 1; // Should always run elimination.
 	while(fl_changed){
+eliminate:
+		nunfilled = 0;
 		fl_changed = 0;
 		fl_unfilled = 0;
 		for(idx = 0; idx < BOARD_SIZE;++idx){
@@ -744,80 +754,34 @@ int hs(int* brd,int* nals,long* bits, int* base){
 	}
 	if( nunfilled > THRESHOLD_LR ) {
 		fl_changed = 0;
-		for(val = 1;val <= SIZE; ++val){
-		  //Row iterator 
-			for(r = 0; r < SIZE; ++r){
-				count = 0;
-				vidx = -1;
-				for(c = 0; c < SIZE; ++c){
-					idx = TO_IDX(r,c);
-						if(brd[idx] == 0){
-							if(nals[idx] == 0)
-								return NO_SOLN;
-							else if(brd[idx] && (1<<val)){
-						 	 	count++;
-						  	if(count == 2)
-						    	break;
-						  	else
-						    	vidx = idx;
-							}	
-						}
-				}
-				if(count == 1){
-				  fl_changed = 1;
-				  set_board_value(brd,nals,bits,NULL,vidx,val);
-				}
-			}
-			//Column Iterator
-			for(c = 0; c < SIZE; ++c){
-			count = 0;
-			vidx = -1;
-			for(r = 0; r < SIZE; ++r){
-			  idx = TO_IDX(r,c);
-			  if(brd[idx] == 0){
-			    if(nals[idx] == 0)
-			      return NO_SOLN;
-			    else if(brd[idx] && (1<<val)){
-			      count++;
-			      if(count == 2)
-			        break;
-			      else
-			        vidx = idx;
-			    }
-			  }
-			}
-				if(count == 1){
-				  fl_changed = 1;
-				  set_board_value(brd,nals,bits,NULL,vidx,val);
-				}
-			}
-			//BOX ITERATOR
-			for(r = 0; r < SIZE; ++r){
-				vidx = -1;
-				count = 0;
-				rp = (r/MINIGRIDSIZE) * MINIGRIDSIZE;
-				cp = (r%MINIGRIDSIZE) * MINIGRIDSIZE;
-				for(c = 0; c < SIZE; ++c){
-				  idx = TO_IDX((rp + (c/MINIGRIDSIZE)),(cp + (c%MINIGRIDSIZE)));
-				  if(brd[idx] == 0){
-				  	if(nals[idx] == 0)
-				      return NO_SOLN;
-				    else if(brd[idx] && (1<<val)){
-				      count++;
-				      if(count == 2)
-				        break;
-				      else
-				        vidx = idx;
-				    }
-				  }
-				}
-				if(count == 1){
-				    fl_changed = 1;
-					set_board_value(brd,nals,bits,NULL,vidx,val);
+		for(idx=0; idx<BOARD_SIZE; ++idx) {
+			r = idx/SIZE;
+			c = idx % SIZE;
+			b = (r/MINIGRIDSIZE)*MINIGRIDSIZE + (c/MINIGRIDSIZE);
+			for(val=1; val<=SIZE; ++val) {
+				if((brd[idx]==0) && (bits[idx] & (1<<val))) {
+					base[r*SIZE + (val-1)] = ((base[r*SIZE + (val-1)]==0)?(idx+1):-5);
+					base[BOARD_SIZE + c*SIZE + (val-1)] = ((base[BOARD_SIZE + c*SIZE + (val-1)]==0)?(idx+1):-5);
+					base[2*BOARD_SIZE + b*SIZE + (val-1)] = ((base[2*BOARD_SIZE + b*SIZE + (val-1)]==0)?(idx+1):-5);
 				}
 			}
 		}
+		for(idx=0; idx<(3*BOARD_SIZE); ++idx) {
+			b = base[idx];
+			if ( b>0 ) {
+				b = b-1; // It is now the index in which to fill the value.
+				b = idx%SIZE;
+				if(brd[b]==0 && (bits[b] & (1<<val))) {
+					fl_changed = 1;
+					set_board_value(brd, nals, bits, NULL, b,val);
+				}
+			}
+		}
+		if(fl_changed) {
+			goto eliminate;
+		}
 	}
+	
 
 	val = SOLVED;
 	for(idx = 0 ; idx < BOARD_SIZE; ++idx){
